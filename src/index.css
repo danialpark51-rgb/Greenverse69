@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: 27, 77, 54;
+    --color-sage: 110, 141, 110;
+    --color-lime: 132, 204, 22;
+  }
+
+  body {
+    background-color: #f7f9f6;
+    color: #1e293b;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Custom subtle scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #cfddcf;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #aec5af;
+  }
+}
+
+/* Glassmorphism & Nature accents */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 224, 0.8);
+}
+
+.glass-panel-dark {
+  background: rgba(10, 35, 24, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(35, 97, 69, 0.3);
+}
+
+.nature-pattern {
+  background-image: radial-gradient(rgba(35, 97, 69, 0.08) 1px, transparent 0);
+  background-size: 24px 24px;
+}
