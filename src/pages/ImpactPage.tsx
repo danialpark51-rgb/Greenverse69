@@ -20,7 +20,8 @@ import {
   TrendingUp,
   Satellite,
   Layers,
-  Download
+  Download,
+  AlertCircle
 } from 'lucide-react';
 
 type ImpactTab = 'impact' | 'statistics' | 'verification' | 'achievements' | 'change-monitor' | 'reputation' | 'mrv';
@@ -110,56 +111,67 @@ export const ImpactPage: React.FC = () => {
         <GreenReputationDashboard currentUserId={currentUserId} />
       )}
 
-      {/* Tab: Satellite MRV Audits */}
       {activeTab === 'mrv' && (
         <div className="space-y-6">
+          {/* Disclaimer: Satellite MRV is not live-connected */}
+          <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-800">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold">Demonstration Mode — Not Live Satellite Data:</span> The figures below are illustrative estimates
+              from the Greenverse platform seed data. Real satellite MRV integration requires a configured remote sensing provider
+              (e.g., Planet Labs, Sentinel Hub). Values shown are <em>not independently verified</em> and should not be cited as carbon offsets.
+            </div>
+          </div>
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Badge variant="emerald" dot>Tier 1 Satellite Pass Active</Badge>
-              <span className="text-xs text-slate-400">Updated: Sentinel-2 pass 2h ago</span>
+              <Badge variant="amber" dot>Demo — Satellite MRV Not Live</Badge>
+              <span className="text-xs text-slate-400">Requires Sentinel Hub / Planet Labs API key</span>
             </div>
             <Button
               variant="outline"
               size="sm"
               icon={<Download className="w-4 h-4" />}
-              onClick={() => alert('Official Verified Impact Certificate PDF downloaded.')}
+              onClick={() => alert('MRV export is not available in demo mode. Connect a satellite data provider first.')}
             >
-              Download Impact Statement
+              Export (Unavailable)
             </Button>
           </div>
 
-          {/* Aggregate Impact Dashboard */}
+          {/* Demo Aggregate Metrics — clearly labeled */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-5 rounded-2xl bg-gradient-to-br from-forest-deep to-forest-rich text-white border border-forest-moss shadow-soft">
               <div className="text-[11px] font-semibold text-lime-400 uppercase tracking-wider flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4" />
-                Total Verified Carbon Sequestered
+                Est. Carbon Sequestered (Demo)
               </div>
               <div className="text-3xl font-extrabold mt-2">44,340 t CO₂e</div>
               <p className="text-xs text-forest-200 mt-1">
-                Accredited under Verra VCS + CCB Gold Standard standards.
+                <span className="text-amber-300 font-semibold">DEMO ESTIMATE</span> — Not independently verified.
+                Based on platform seed project data × USDA i-Tree equations.
               </p>
             </div>
 
             <div className="p-5 rounded-2xl bg-white border border-sage-200 shadow-soft">
               <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                 <Satellite className="w-4 h-4 text-forest-700" />
-                Total Verified Trees Count
+                Est. Trees (Seed Data)
               </div>
               <div className="text-3xl font-extrabold text-slate-900 mt-2">381,240 Trees</div>
               <p className="text-xs text-slate-500 mt-1">
-                Across 64 registered restoration corridors globally.
+                <span className="text-amber-700 font-semibold">DEMO</span> — Platform seed project entries only.
+                Not real-world satellite count.
               </p>
             </div>
 
             <div className="p-5 rounded-2xl bg-white border border-sage-200 shadow-soft">
               <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-emerald-600" />
-                Biomass Density
+                Avg. Biomass Density (Demo)
               </div>
               <div className="text-3xl font-extrabold text-slate-900 mt-2">48.6 t / ha</div>
               <p className="text-xs text-emerald-700 font-medium mt-1">
-                ↑ +14.2% increase in photosynthetically active canopy.
+                <span className="text-amber-700 font-semibold">DEMO</span> — Illustrative figure only.
               </p>
             </div>
           </div>
@@ -169,9 +181,11 @@ export const ImpactPage: React.FC = () => {
             <CardHeader>
               <div>
                 <CardTitle>Independent Verification & Audit Ledger</CardTitle>
-                <CardDescription>Immutable record of satellite, drone, and field auditor verification passes</CardDescription>
+                <CardDescription>
+                  Demo verification records — requires real satellite provider integration to show live audits
+                </CardDescription>
               </div>
-              <Badge variant="forest" size="sm">Audited Quarterly</Badge>
+              <Badge variant="amber" size="sm">Demo Data</Badge>
             </CardHeader>
             <CardContent className="divide-y divide-slate-100 p-0">
               {MOCK_IMPACT_AUDITS.map((audit) => (
@@ -180,6 +194,7 @@ export const ImpactPage: React.FC = () => {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-slate-900">{audit.period}</span>
+                        <Badge variant="amber" size="sm">Demo</Badge>
                         <Badge variant="emerald" size="sm">{audit.auditStandard}</Badge>
                       </div>
                       <p className="text-xs text-slate-600">

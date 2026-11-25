@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS public.personal_impact_metrics (
 );
 
 -- ==============================================================================
--- ROW LEVEL SECURITY (RLS) & GRANTS
+-- ROW LEVEL SECURITY — BATCH 6
 -- ==============================================================================
 ALTER TABLE public.tree_protection_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tree_protection_updates ENABLE ROW LEVEL SECURITY;
@@ -157,18 +157,209 @@ ALTER TABLE public.user_achievements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.green_change_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.personal_impact_metrics ENABLE ROW LEVEL SECURITY;
 
-DO $$ 
-DECLARE
-    tbl text;
-    tables text[] := ARRAY[
-        'tree_protection_reports', 'tree_protection_updates', 'verification_queue_items',
-        'reward_rules', 'user_achievements', 'green_change_records', 'personal_impact_metrics'
-    ];
+-- ── Tree Protection Reports ───────────────────────────────
+-- Public can read all reports (community transparency)
+CREATE POLICY "Public read protection reports"
+  ON public.tree_protection_reports FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated submit protection reports"
+  ON public.tree_protection_reports FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = reporter_id);
+
+CREATE POLICY "Reporters update own reports"
+  ON public.tree_protection_reports FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = reporter_id);
+
+-- ── Tree Protection Updates ───────────────────────────────
+CREATE POLICY "Public read protection updates"
+  ON public.tree_protection_updates FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated post protection updates"
+  ON public.tree_protection_updates FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = responder_id);
+
+-- ── Verification Queue ─────────────────────────────────────
+-- Users can read and submit their own items
+CREATE POLICY "Users read own verification items"
+  ON public.verification_queue_items FOR SELECT
+  TO authenticated
+  USING (auth.uid() = submitter_id);
+
+CREATE POLICY "Authenticated submit for verification"
+  ON public.verification_queue_items FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = submitter_id);
+
+-- ── Reward Rules ──────────────────────────────────────────
+-- Public can read active reward rules (transparency)
+CREATE POLICY "Public read reward rules"
+  ON public.reward_rules FOR SELECT USING (is_active = true);
+
+-- ── User Achievements ─────────────────────────────────────
+CREATE POLICY "Users read own achievements"
+  ON public.user_achievements FOR SELECT
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+-- Achievements are only created/updated by service_role backend
+-- No direct user inserts permitted
+
+-- ── Green Change Records ──────────────────────────────────
+CREATE POLICY "Public read change records"
+  ON public.green_change_records FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated submit change records"
+  ON public.green_change_records FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+-- ── Personal Impact Metrics ───────────────────────────────
+-- Users can only read their own metrics; mutations via service_role
+CREATE POLICY "Users read own impact metrics"
+  ON public.personal_impact_metrics FOR SELECT
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+-- ── GRANTS — Batch 6 tables ───────────────────────────────
+-- anon: limited public read
+GRANT SELECT ON public.tree_protection_reports TO anon;
+GRANT SELECT ON public.tree_protection_updates TO anon;
+GRANT SELECT ON public.reward_rules TO anon;
+GRANT SELECT ON public.green_change_records TO anon;
+-- anon has NO access to: verification queue, achievements, personal metrics
+
+-- authenticated: targeted DML; RLS enforces row-level rules
+GRANT SELECT, INSERT, UPDATE ON public.tree_protection_reports TO authenticated;
+GRANT SELECT, INSERT ON public.tree_protection_updates TO authenticated;
+GRANT SELECT, INSERT ON public.verification_queue_items TO authenticated;
+GRANT SELECT ON public.reward_rules TO authenticated;
+GRANT SELECT ON public.user_achievements TO authenticated;
+GRANT SELECT, INSERT ON public.green_change_records TO authenticated;
+GRANT SELECT ON public.personal_impact_metrics TO authenticated;
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_protection_reports_reporter ON public.tree_protection_reports(reporter_id);
+CREATE INDEX IF NOT EXISTS idx_protection_reports_status ON public.tree_protection_reports(status);
+CREATE INDEX IF NOT EXISTS idx_verification_queue_submitter ON public.verification_queue_items(submitter_id);
+CREATE INDEX IF NOT EXISTS idx_verification_queue_status ON public.verification_queue_items(status);
+CREATE INDEX IF NOT EXISTS idx_achievements_user ON public.user_achievements(user_id);
+CREATE INDEX IF NOT EXISTS idx_achievements_key ON public.user_achievements(achievement_key);
+CREATE INDEX IF NOT EXISTS idx_change_records_location ON public.green_change_records(latitude, longitude);
+
+-- ── Trigger: Sync personal_impact_metrics when trees are added ────────────────
+-- This trigger updates the personal impact metrics table whenever a tree
+-- is registered in the trees table (from Batch 1). It runs as SECURITY DEFINER
+-- to allow the update from the anon role if needed.
+CREATE OR REPLACE FUNCTION public.sync_tree_planting_impact()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
 BEGIN
-    FOREACH tbl IN ARRAY tables LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "allow_all_ops_%s" ON public.%I', tbl, tbl);
-        EXECUTE format('CREATE POLICY "allow_all_ops_%s" ON public.%I FOR ALL TO public USING (true) WITH CHECK (true)', tbl, tbl);
-    END LOOP;
+  IF NEW.planted_by IS NOT NULL THEN
+    INSERT INTO public.personal_impact_metrics (user_id, trees_planted_total, co2_sequestered_kg, last_synced_at)
+    VALUES (NEW.planted_by, 1, 21.77, NOW())
+    ON CONFLICT (user_id) DO UPDATE SET
+      trees_planted_total = personal_impact_metrics.trees_planted_total + 1,
+      -- Avg CO2 sequestration: ~21.77 kg/year for a typical broadleaf tree (FAO estimate)
+      co2_sequestered_kg = personal_impact_metrics.co2_sequestered_kg + 21.77,
+      last_synced_at = NOW();
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Only create the trigger if the trees table exists (Batch 1 prerequisite)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'trees') THEN
+    DROP TRIGGER IF EXISTS trg_sync_tree_planting_impact ON public.trees;
+    CREATE TRIGGER trg_sync_tree_planting_impact
+      AFTER INSERT ON public.trees
+      FOR EACH ROW
+      EXECUTE FUNCTION public.sync_tree_planting_impact();
+  END IF;
 END $$;
 
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+-- ── Function: Award green points (called by service_role only) ─────────────────
+-- This is intentionally NOT exposed to anon or authenticated directly.
+-- Frontend calls should go through a Supabase Edge Function or RPC
+-- that validates the action before calling this function as service_role.
+CREATE OR REPLACE FUNCTION public.award_green_points(
+  p_user_id UUID,
+  p_action_key TEXT,
+  p_description TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_rule public.reward_rules%ROWTYPE;
+  v_wallet public.user_wallets%ROWTYPE;
+  v_new_balance INT;
+  v_tx_id UUID;
+BEGIN
+  -- Get active reward rule
+  SELECT * INTO v_rule FROM public.reward_rules
+  WHERE action_key = p_action_key AND is_active = TRUE LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Reward rule not found or inactive');
+  END IF;
+
+  -- Get or create wallet
+  INSERT INTO public.user_wallets (user_id, green_points_balance, total_points_earned)
+  VALUES (p_user_id, 0, 0)
+  ON CONFLICT (user_id) DO NOTHING;
+
+  SELECT * INTO v_wallet FROM public.user_wallets WHERE user_id = p_user_id FOR UPDATE;
+
+  v_new_balance := v_wallet.green_points_balance + v_rule.points_reward;
+
+  -- Update wallet
+  UPDATE public.user_wallets SET
+    green_points_balance = v_new_balance,
+    total_points_earned = total_points_earned + v_rule.points_reward,
+    last_transaction_at = NOW()
+  WHERE user_id = p_user_id;
+
+  -- Record transaction
+  INSERT INTO public.wallet_transactions (
+    user_id, transaction_type, amount, balance_after, description, status, audit_hash
+  ) VALUES (
+    p_user_id,
+    'reward_credit',
+    v_rule.points_reward,
+    v_new_balance,
+    COALESCE(p_description, v_rule.action_name),
+    'confirmed',
+    encode(sha256((p_user_id::text || p_action_key || NOW()::text)::bytea), 'hex')
+  ) RETURNING id INTO v_tx_id;
+
+  -- Update personal impact metrics
+  UPDATE public.personal_impact_metrics SET
+    green_points_earned = green_points_earned + v_rule.points_reward,
+    last_synced_at = NOW()
+  WHERE user_id = p_user_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'points_awarded', v_rule.points_reward,
+    'new_balance', v_new_balance,
+    'transaction_id', v_tx_id
+  );
+END;
+$$;
+
+-- Revoke direct access to award_green_points from anon and authenticated
+-- Only service_role (backend) can call it
+REVOKE ALL ON FUNCTION public.award_green_points(UUID, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.award_green_points(UUID, TEXT, TEXT) FROM anon;
+REVOKE ALL ON FUNCTION public.award_green_points(UUID, TEXT, TEXT) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.award_green_points(UUID, TEXT, TEXT) TO service_role;

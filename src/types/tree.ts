@@ -21,6 +21,8 @@ export interface DbTree {
   carbon_offset_kg: number;
   notes: string | null;
   user_id: string | null;
+  is_private_location?: boolean;
+  is_archived?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +37,7 @@ export interface DbCareTask {
   due_date: string;
   completed: boolean;
   completed_at: string | null;
+  completed_by?: string | null;
   priority: TaskPriority;
   created_at: string;
 }
@@ -89,6 +92,7 @@ export interface RegisterTreeInput {
   height_meters?: number;
   dbh_cm?: number;
   notes?: string;
+  is_private_location?: boolean;
 }
 
 export interface CreateCareTaskInput {

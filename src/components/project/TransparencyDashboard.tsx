@@ -176,7 +176,15 @@ export const TransparencyDashboard: React.FC<TransparencyDashboardProps> = ({
                   </div>
                   <div className="text-right">
                     <span className="text-sm font-extrabold text-slate-900">{project.currency} {rec.amount.toLocaleString()}</span>
-                    {rec.is_verified && <div className="text-[10px] text-emerald-600 font-semibold flex items-center gap-0.5 justify-end"><CheckCircle2 className="w-3 h-3" />Verified</div>}
+                    {rec.is_verified ? (
+                      <div className="text-[10px] text-emerald-600 font-semibold flex items-center gap-0.5 justify-end">
+                        <CheckCircle2 className="w-3 h-3" />Verified Receipt
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-amber-700 font-medium flex items-center gap-0.5 justify-end">
+                        <AlertCircle className="w-3 h-3" />Pending Audit Verification
+                      </div>
+                    )}
                   </div>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">{rec.description}</p>

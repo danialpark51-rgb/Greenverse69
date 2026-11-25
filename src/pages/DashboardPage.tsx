@@ -63,14 +63,14 @@ export const DashboardPage: React.FC = () => {
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-forest-600/40 border border-forest-400/30 text-lime-300 text-xs font-semibold uppercase tracking-wider">
               <Sparkles className="w-3.5 h-3.5" />
-              Planetary Tree Intelligence Active
+              Planetary Tree Intelligence — Demo Preview
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               Welcome back, Elena
             </h1>
             <p className="text-forest-200 text-xs sm:text-sm leading-relaxed">
-              Your registered canopy sequestered an estimated <strong className="text-white font-semibold">142.6 tons of CO₂e</strong> this quarter.
-              Next scheduled Sentinel-2 multispectral pass in <strong className="text-lime-300 font-semibold">4 hours 18 minutes</strong>.
+              Your registered canopy sequestered an estimated <strong className="text-white font-semibold">142.6 tons of CO₂e</strong> (demo estimate).
+              Illustrative Sentinel-2 multispectral telemetry based on USDA i-Tree carbon models.
             </p>
           </div>
 

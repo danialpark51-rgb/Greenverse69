@@ -339,7 +339,7 @@ CREATE TABLE IF NOT EXISTS public.expert_bookmarks (
 );
 
 -- ==============================================================================
--- ROW LEVEL SECURITY (RLS) & GRANTS
+-- ROW LEVEL SECURITY — BATCH 5
 -- ==============================================================================
 ALTER TABLE public.gigs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.gig_applications ENABLE ROW LEVEL SECURITY;
@@ -366,23 +366,130 @@ ALTER TABLE public.expert_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expert_inquiries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expert_bookmarks ENABLE ROW LEVEL SECURITY;
 
--- Permissive development policies (standard across Greenverse)
-DO $$ 
-DECLARE
-    tbl text;
-    tables text[] := ARRAY[
-        'gigs', 'gig_applications', 'gig_bookmarks', 'bounties', 'bounty_claims', 'bounty_submissions',
-        'opportunities', 'opportunity_applications', 'opportunity_bookmarks', 'opportunity_reports',
-        'user_wallets', 'wallet_transactions', 'wallet_redemptions', 'user_skill_profiles',
-        'user_reputations', 'reputation_activity_logs', 'user_badges', 'marketplace_listings',
-        'marketplace_inquiries', 'marketplace_bookmarks', 'marketplace_reports', 'expert_profiles',
-        'expert_inquiries', 'expert_bookmarks'
-    ];
-BEGIN
-    FOREACH tbl IN ARRAY tables LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "allow_all_ops_%s" ON public.%I', tbl, tbl);
-        EXECUTE format('CREATE POLICY "allow_all_ops_%s" ON public.%I FOR ALL TO public USING (true) WITH CHECK (true)', tbl, tbl);
-    END LOOP;
-END $$;
+-- ── Gigs (Job Listings) ───────────────────────────────────
+CREATE POLICY "Public read open gigs" ON public.gigs FOR SELECT USING (status = 'open');
+CREATE POLICY "Employers read own gigs" ON public.gigs FOR SELECT TO authenticated USING (auth.uid() = employer_id);
+CREATE POLICY "Employers post gigs" ON public.gigs FOR INSERT TO authenticated WITH CHECK (auth.uid() = employer_id);
+CREATE POLICY "Employers update own gigs" ON public.gigs FOR UPDATE TO authenticated USING (auth.uid() = employer_id);
 
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+CREATE POLICY "Users apply for gigs" ON public.gig_applications FOR INSERT TO authenticated WITH CHECK (auth.uid() = applicant_id);
+CREATE POLICY "Users read own applications" ON public.gig_applications FOR SELECT TO authenticated USING (auth.uid() = applicant_id);
+CREATE POLICY "Employers read their gig applications" ON public.gig_applications FOR SELECT TO authenticated
+  USING (auth.uid() = (SELECT employer_id FROM public.gigs WHERE id = gig_id LIMIT 1));
+CREATE POLICY "Users manage gig bookmarks" ON public.gig_bookmarks FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ── Bounties ──────────────────────────────────────────────
+CREATE POLICY "Public read active bounties" ON public.bounties FOR SELECT USING (status = 'active');
+CREATE POLICY "Authenticated create bounties" ON public.bounties FOR INSERT TO authenticated WITH CHECK (auth.uid() = creator_id);
+CREATE POLICY "Users manage bounty claims" ON public.bounty_claims FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users submit bounty evidence" ON public.bounty_submissions FOR INSERT TO authenticated WITH CHECK (auth.uid() = submitter_id);
+CREATE POLICY "Users read own submissions" ON public.bounty_submissions FOR SELECT TO authenticated USING (auth.uid() = submitter_id);
+CREATE POLICY "Bounty creators review submissions" ON public.bounty_submissions FOR SELECT TO authenticated
+  USING (auth.uid() = (SELECT creator_id FROM public.bounties WHERE id = bounty_id LIMIT 1));
+
+-- ── Opportunities ─────────────────────────────────────────
+CREATE POLICY "Public read active opportunities" ON public.opportunities FOR SELECT USING (status = 'active');
+CREATE POLICY "Users apply to opportunities" ON public.opportunity_applications FOR INSERT TO authenticated WITH CHECK (auth.uid() = applicant_id);
+CREATE POLICY "Users read own opportunity apps" ON public.opportunity_applications FOR SELECT TO authenticated USING (auth.uid() = applicant_id);
+CREATE POLICY "Users manage opportunity bookmarks" ON public.opportunity_bookmarks FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users report opportunities" ON public.opportunity_reports FOR INSERT TO authenticated WITH CHECK (auth.uid() = reporter_id);
+CREATE POLICY "Users read own reports" ON public.opportunity_reports FOR SELECT TO authenticated USING (auth.uid() = reporter_id);
+
+-- ── Wallet — CRITICAL SECURITY: users can NEVER self-credit ──────────────────
+-- Wallets: users can read their own; server-side only for mutations
+CREATE POLICY "Users read own wallet" ON public.user_wallets FOR SELECT TO authenticated USING (auth.uid() = user_id);
+-- No INSERT/UPDATE directly from client — only via service_role backend functions
+
+-- Wallet Transactions: users read own; no direct client inserts
+CREATE POLICY "Users read own transactions" ON public.wallet_transactions FOR SELECT TO authenticated USING (auth.uid() = user_id);
+-- Transaction inserts only via service_role
+
+-- Redemptions: users read own; authenticated can insert (redeem)
+CREATE POLICY "Users read own redemptions" ON public.wallet_redemptions FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Users create redemptions" ON public.wallet_redemptions FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+-- ── Skill Profiles & Reputation ───────────────────────────
+CREATE POLICY "Public read skill profiles" ON public.user_skill_profiles FOR SELECT USING (true);
+CREATE POLICY "Users manage own skill profile" ON public.user_skill_profiles FOR ALL TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Public read reputations" ON public.user_reputations FOR SELECT USING (true);
+-- Reputation updates only via service_role
+
+CREATE POLICY "Public read activity logs" ON public.reputation_activity_logs FOR SELECT USING (true);
+
+CREATE POLICY "Public read badges" ON public.user_badges FOR SELECT USING (true);
+-- Badge inserts only via service_role
+
+-- ── Marketplace ───────────────────────────────────────────
+CREATE POLICY "Public read active listings" ON public.marketplace_listings FOR SELECT USING (status = 'active');
+CREATE POLICY "Sellers read own listings" ON public.marketplace_listings FOR SELECT TO authenticated USING (auth.uid() = seller_id);
+CREATE POLICY "Sellers create listings" ON public.marketplace_listings FOR INSERT TO authenticated WITH CHECK (auth.uid() = seller_id);
+CREATE POLICY "Sellers update own listings" ON public.marketplace_listings FOR UPDATE TO authenticated USING (auth.uid() = seller_id);
+CREATE POLICY "Sellers delete own listings" ON public.marketplace_listings FOR DELETE TO authenticated USING (auth.uid() = seller_id);
+
+CREATE POLICY "Authenticated send inquiries" ON public.marketplace_inquiries FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id);
+CREATE POLICY "Parties read their inquiries" ON public.marketplace_inquiries FOR SELECT TO authenticated
+  USING (auth.uid() = sender_id OR auth.uid() = (SELECT seller_id FROM public.marketplace_listings WHERE id = listing_id LIMIT 1));
+
+CREATE POLICY "Users manage listing bookmarks" ON public.marketplace_bookmarks FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users report listings" ON public.marketplace_reports FOR INSERT TO authenticated WITH CHECK (auth.uid() = reporter_id);
+
+-- ── Expert Profiles & Inquiries ───────────────────────────
+CREATE POLICY "Public read verified experts" ON public.expert_profiles FOR SELECT USING (true);
+CREATE POLICY "Users manage own expert profile" ON public.expert_profiles FOR ALL TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Authenticated send expert inquiries" ON public.expert_inquiries FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id);
+CREATE POLICY "Parties read their expert inquiries" ON public.expert_inquiries FOR SELECT TO authenticated
+  USING (auth.uid() = sender_id OR auth.uid() = (SELECT user_id FROM public.expert_profiles WHERE id = expert_id LIMIT 1));
+
+CREATE POLICY "Users manage expert bookmarks" ON public.expert_bookmarks FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ── GRANTS — Batch 5 tables ───────────────────────────────
+-- anon: read-only on public data
+GRANT SELECT ON public.gigs TO anon;
+GRANT SELECT ON public.bounties TO anon;
+GRANT SELECT ON public.opportunities TO anon;
+GRANT SELECT ON public.marketplace_listings TO anon;
+GRANT SELECT ON public.expert_profiles TO anon;
+GRANT SELECT ON public.user_skill_profiles TO anon;
+GRANT SELECT ON public.user_reputations TO anon;
+GRANT SELECT ON public.user_badges TO anon;
+-- anon has NO access to: wallets, transactions, applications, inquiries, bookmarks, reports
+
+-- authenticated: targeted DML; RLS enforces row-level rules
+GRANT SELECT, INSERT, UPDATE ON public.gigs TO authenticated;
+GRANT SELECT, INSERT ON public.gig_applications TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.gig_bookmarks TO authenticated;
+GRANT SELECT, INSERT ON public.bounties TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.bounty_claims TO authenticated;
+GRANT SELECT, INSERT ON public.bounty_submissions TO authenticated;
+GRANT SELECT ON public.opportunities TO authenticated;
+GRANT SELECT, INSERT ON public.opportunity_applications TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.opportunity_bookmarks TO authenticated;
+GRANT SELECT, INSERT ON public.opportunity_reports TO authenticated;
+-- Wallet: read own only; mutations via service_role
+GRANT SELECT ON public.user_wallets TO authenticated;
+GRANT SELECT ON public.wallet_transactions TO authenticated;
+GRANT SELECT, INSERT ON public.wallet_redemptions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_skill_profiles TO authenticated;
+GRANT SELECT ON public.user_reputations TO authenticated;
+GRANT SELECT ON public.reputation_activity_logs TO authenticated;
+GRANT SELECT ON public.user_badges TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.marketplace_listings TO authenticated;
+GRANT SELECT, INSERT ON public.marketplace_inquiries TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.marketplace_bookmarks TO authenticated;
+GRANT SELECT, INSERT ON public.marketplace_reports TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.expert_profiles TO authenticated;
+GRANT SELECT, INSERT ON public.expert_inquiries TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.expert_bookmarks TO authenticated;
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_gigs_status ON public.gigs(status);
+CREATE INDEX IF NOT EXISTS idx_gigs_category ON public.gigs(category);
+CREATE INDEX IF NOT EXISTS idx_marketplace_seller ON public.marketplace_listings(seller_id);
+CREATE INDEX IF NOT EXISTS idx_marketplace_status ON public.marketplace_listings(status);
+CREATE INDEX IF NOT EXISTS idx_wallet_user ON public.user_wallets(user_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_user ON public.wallet_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_bounty_claims_user ON public.bounty_claims(user_id);

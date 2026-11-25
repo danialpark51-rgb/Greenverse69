@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Project, ProjectCategory } from '../../types/project';
 import { fetchProjects, toggleBookmarkProject } from '../../services/projectService';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 interface ProjectHubProps {
   currentUserId?: string;
@@ -58,6 +59,24 @@ export const ProjectHub: React.FC<ProjectHubProps> = ({
   useEffect(() => {
     loadData();
   }, [selectedCategory, selectedStatus, selectedType]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const channel = supabase
+      .channel('projects-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'projects' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,9 +125,17 @@ export const ProjectHub: React.FC<ProjectHubProps> = ({
       {/* Top Banner / Actions */}
       <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold uppercase tracking-wider mb-2 border border-emerald-100">
-            <Coins className="w-3.5 h-3.5 text-emerald-600" />
-            Ecological Project Discovery Hub
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold uppercase tracking-wider border border-emerald-100">
+              <Coins className="w-3.5 h-3.5 text-emerald-600" />
+              Ecological Project Discovery Hub
+            </div>
+            {isSupabaseConfigured && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-lime-50 text-forest-700 text-[11px] font-semibold border border-lime-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live Sync Active
+              </span>
+            )}
           </div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
             Verified Environmental Projects & Crowdfunded Restorations

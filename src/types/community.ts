@@ -272,3 +272,67 @@ export interface SquadLeaderboardEntry {
   rank: number;
 }
 
+// ============================================================
+// VOLUNTEER NETWORK — Batch 3
+// ============================================================
+export interface DbVolunteerOpportunity {
+  id: string;
+  community_id: string | null;
+  community_name?: string;
+  organizer_id: string | null;
+  organizer_name: string;
+  title: string;
+  description: string;
+  location_name: string;
+  latitude: number | null;
+  longitude: number | null;
+  opportunity_date: string;
+  start_time: string | null;
+  skills_needed: string[];
+  max_volunteers: number;
+  current_volunteers_count: number;
+  status: 'open' | 'full' | 'completed' | 'cancelled';
+  created_at: string;
+  updated_at: string;
+  // Client-side state: set after checking volunteer_registrations
+  userRegistration?: 'registered' | 'cancelled' | 'attended' | null;
+}
+
+export interface DbVolunteerRegistration {
+  id: string;
+  opportunity_id: string;
+  user_id: string;
+  display_name: string;
+  status: 'registered' | 'cancelled' | 'attended';
+  registered_at: string;
+}
+
+// ============================================================
+// COMMUNITY LEADERBOARD — Batch 3
+// ============================================================
+export interface CommunityLeaderboardEntry {
+  community_id: string;
+  community_name: string;
+  avatar_url: string | null;
+  location_name: string;
+  trees_planted_count: number;
+  members_count: number;
+  score: number;
+  rank: number;
+  score_breakdown: {
+    trees_points: number;
+    members_points: number;
+    challenges_points: number;
+  };
+}
+
+export interface MemberLeaderboardEntry {
+  user_id: string;
+  display_name: string;
+  trees_registered: number;
+  challenges_completed: number;
+  events_attended: number;
+  score: number;
+  rank: number;
+}
+

@@ -11,6 +11,7 @@ import {
   INITIAL_REDEMPTIONS
 } from '../services/economyService';
 import { UserWallet, WalletTransaction, WalletRedemptionOption } from '../types/economy';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export const WalletPage: React.FC = () => {
   const { user } = useAuth();
@@ -45,6 +46,31 @@ export const WalletPage: React.FC = () => {
   useEffect(() => {
     loadWalletData();
   }, [userId]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !user?.id) return;
+    const channel = supabase
+      .channel(`wallet-ledger-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'wallet_transactions', filter: `user_id=eq.${user.id}` },
+        () => {
+          loadWalletData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_wallets', filter: `user_id=eq.${user.id}` },
+        () => {
+          loadWalletData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   const handleRedeem = async () => {
     if (!selectedOption) return;
@@ -81,14 +107,22 @@ export const WalletPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-          <Wallet className="w-6 h-6 text-emerald-600" />
-          Greenverse Rewards Wallet & Activity Ledger
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          Verifiable ecological rewards ledger tracking earned Green Points, completed task incentives, and community redemptions.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <Wallet className="w-6 h-6 text-emerald-600" />
+            Greenverse Rewards Wallet & Activity Ledger
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Verifiable ecological rewards ledger tracking earned Green Points, completed task incentives, and community redemptions.
+          </p>
+        </div>
+        {isSupabaseConfigured && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200 self-start sm:self-auto">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            Live Ledger Sync
+          </span>
+        )}
       </div>
 
       {/* Security & Non-Cash Disclosure Banner */}

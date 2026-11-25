@@ -53,7 +53,7 @@ export const GreenChangeMonitor: React.FC = () => {
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-600 flex items-start gap-3">
         <Info className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
         <div>
-          <span className="font-bold text-slate-800">Ground-Truth Data Transparency:</span> Comparisons are compiled from registered community planting records and ground photogrammetry passes. No synthetic or simulated satellite passes are used without live sensor configuration.
+          <span className="font-bold text-slate-800">Ground-Truth Data Transparency:</span> Showing sample community restoration comparisons compiled from registered planting records and ground photogrammetry passes. Real photographic comparison pairs submitted by users appear here. No synthetic satellite passes are used without live sensor configuration.
         </div>
       </div>
 

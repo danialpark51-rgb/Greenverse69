@@ -282,7 +282,9 @@ CREATE TABLE IF NOT EXISTS public.project_bookmarks (
   UNIQUE (project_id, user_id)
 );
 
--- Enable Row Level Security (RLS) on all tables
+-- ============================================================
+-- ROW LEVEL SECURITY — BATCH 4
+-- ============================================================
 ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.funding_campaigns ENABLE ROW LEVEL SECURITY;
@@ -301,5 +303,256 @@ ALTER TABLE public.project_verification_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_bookmarks ENABLE ROW LEVEL SECURITY;
 
--- Grants & Permissive Policies
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+-- ── Projects ──────────────────────────────────────────────
+-- Public can read active/approved projects; anon cannot read draft/rejected
+CREATE POLICY "Public read active projects"
+  ON public.projects FOR SELECT
+  USING (status IN ('active', 'completed', 'paused'));
+
+CREATE POLICY "Owners read own draft projects"
+  ON public.projects FOR SELECT
+  TO authenticated
+  USING (auth.uid() = owner_id);
+
+CREATE POLICY "Authenticated users create projects"
+  ON public.projects FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = owner_id);
+
+CREATE POLICY "Owners update own projects"
+  ON public.projects FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = owner_id)
+  WITH CHECK (auth.uid() = owner_id);
+
+CREATE POLICY "Owners delete own draft projects"
+  ON public.projects FOR DELETE
+  TO authenticated
+  USING (auth.uid() = owner_id AND status IN ('draft', 'rejected'));
+
+-- ── Project Members ──────────────────────────────────────
+CREATE POLICY "Public read project members"
+  ON public.project_members FOR SELECT USING (true);
+
+CREATE POLICY "Users join projects"
+  ON public.project_members FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users leave projects"
+  ON public.project_members FOR DELETE
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+-- ── Funding Campaigns ───────────────────────────────────
+CREATE POLICY "Public read campaigns"
+  ON public.funding_campaigns FOR SELECT USING (true);
+
+CREATE POLICY "Project owners create campaigns"
+  ON public.funding_campaigns FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = creator_id);
+
+CREATE POLICY "Campaign creators update campaigns"
+  ON public.funding_campaigns FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = creator_id);
+
+-- ── Funding Tiers ────────────────────────────────────────
+CREATE POLICY "Public read funding tiers"
+  ON public.funding_tiers FOR SELECT USING (true);
+
+-- ── Project Pledges ──────────────────────────────────────
+-- Pledges are financial intent records. Anon cannot insert pledges.
+CREATE POLICY "Users read own pledges"
+  ON public.project_pledges FOR SELECT
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Project owners read project pledges"
+  ON public.project_pledges FOR SELECT
+  TO authenticated
+  USING (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  );
+
+CREATE POLICY "Authenticated users create pledges"
+  ON public.project_pledges FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users cancel own pledges"
+  ON public.project_pledges FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = user_id AND status = 'pledged')
+  WITH CHECK (status = 'cancelled');
+
+-- ── Budget Items ─────────────────────────────────────────
+CREATE POLICY "Public read budget items"
+  ON public.project_budget_items FOR SELECT USING (true);
+
+CREATE POLICY "Project owners manage budget"
+  ON public.project_budget_items FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  );
+
+-- ── Spending Records ─────────────────────────────────────
+CREATE POLICY "Public read spending records"
+  ON public.project_spending_records FOR SELECT USING (true);
+
+CREATE POLICY "Project owners record spending"
+  ON public.project_spending_records FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = recorded_by
+    AND auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  );
+
+-- ── Volunteer Roles & Applications ────────────────────────
+CREATE POLICY "Public read volunteer roles"
+  ON public.project_volunteer_roles FOR SELECT USING (true);
+
+CREATE POLICY "Project owners manage roles"
+  ON public.project_volunteer_roles FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  );
+
+CREATE POLICY "Users apply to volunteer"
+  ON public.volunteer_applications FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users read own applications"
+  ON public.volunteer_applications FOR SELECT
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Project owners read applications"
+  ON public.volunteer_applications FOR SELECT
+  TO authenticated
+  USING (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  );
+
+-- ── Resource Requests & Pledges ───────────────────────────
+CREATE POLICY "Public read resource requests"
+  ON public.project_resource_requests FOR SELECT USING (true);
+
+CREATE POLICY "Users pledge resources"
+  ON public.project_resource_pledges FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users read own resource pledges"
+  ON public.project_resource_pledges FOR SELECT
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+-- ── Milestones & Updates ──────────────────────────────────
+CREATE POLICY "Public read milestones"
+  ON public.project_milestones FOR SELECT USING (true);
+
+CREATE POLICY "Project owners manage milestones"
+  ON public.project_milestones FOR ALL
+  TO authenticated
+  USING (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  )
+  WITH CHECK (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  );
+
+CREATE POLICY "Public read project updates"
+  ON public.project_updates FOR SELECT USING (true);
+
+CREATE POLICY "Project owners post updates"
+  ON public.project_updates FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = author_id);
+
+-- ── Impact Estimates ──────────────────────────────────────
+CREATE POLICY "Public read impact estimates"
+  ON public.project_impact_estimates FOR SELECT USING (true);
+
+CREATE POLICY "Project owners manage estimates"
+  ON public.project_impact_estimates FOR ALL
+  TO authenticated
+  USING (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  )
+  WITH CHECK (
+    auth.uid() = (SELECT owner_id FROM public.projects WHERE id = project_id LIMIT 1)
+  );
+
+-- ── Verification Records ──────────────────────────────────
+CREATE POLICY "Public read verification records"
+  ON public.project_verification_records FOR SELECT USING (true);
+
+-- Only service_role / reviewers can insert verification records
+-- No direct user inserts permitted
+
+-- ── Project Reports (Moderation) ──────────────────────────
+CREATE POLICY "Users submit project reports"
+  ON public.project_reports FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = reporter_id);
+
+CREATE POLICY "Users read own reports"
+  ON public.project_reports FOR SELECT
+  TO authenticated
+  USING (auth.uid() = reporter_id);
+
+-- ── Project Bookmarks ─────────────────────────────────────
+CREATE POLICY "Users manage own bookmarks"
+  ON public.project_bookmarks FOR ALL
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- ── GRANTS — Batch 4 tables ───────────────────────────────
+-- anon: read-only access to public project data
+GRANT SELECT ON public.projects TO anon;
+GRANT SELECT ON public.funding_campaigns TO anon;
+GRANT SELECT ON public.funding_tiers TO anon;
+GRANT SELECT ON public.project_budget_items TO anon;
+GRANT SELECT ON public.project_spending_records TO anon;
+GRANT SELECT ON public.project_volunteer_roles TO anon;
+GRANT SELECT ON public.project_resource_requests TO anon;
+GRANT SELECT ON public.project_milestones TO anon;
+GRANT SELECT ON public.project_updates TO anon;
+GRANT SELECT ON public.project_impact_estimates TO anon;
+GRANT SELECT ON public.project_verification_records TO anon;
+GRANT SELECT ON public.project_members TO anon;
+-- anon has NO access to: pledges, volunteer applications, spending entries, reports, bookmarks
+
+-- authenticated: targeted DML, RLS enforces row-level rules
+GRANT SELECT, INSERT, UPDATE ON public.projects TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.project_members TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.funding_campaigns TO authenticated;
+GRANT SELECT ON public.funding_tiers TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.project_pledges TO authenticated;
+GRANT SELECT, INSERT ON public.project_budget_items TO authenticated;
+GRANT SELECT, INSERT ON public.project_spending_records TO authenticated;
+GRANT SELECT, INSERT ON public.project_volunteer_roles TO authenticated;
+GRANT SELECT, INSERT ON public.volunteer_applications TO authenticated;
+GRANT SELECT, INSERT ON public.project_resource_requests TO authenticated;
+GRANT SELECT, INSERT ON public.project_resource_pledges TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.project_milestones TO authenticated;
+GRANT SELECT, INSERT ON public.project_updates TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.project_impact_estimates TO authenticated;
+GRANT SELECT ON public.project_verification_records TO authenticated;
+GRANT SELECT, INSERT ON public.project_reports TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.project_bookmarks TO authenticated;
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_projects_owner ON public.projects(owner_id);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON public.projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_category ON public.projects(category);
+CREATE INDEX IF NOT EXISTS idx_project_pledges_user ON public.project_pledges(user_id);
+CREATE INDEX IF NOT EXISTS idx_project_pledges_project ON public.project_pledges(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_milestones_project ON public.project_milestones(project_id);
+CREATE INDEX IF NOT EXISTS idx_volunteer_apps_user ON public.volunteer_applications(user_id);

@@ -256,3 +256,86 @@ export interface DbPlantingPlan {
   created_at: string;
   updated_at: string;
 }
+
+// ==========================================
+// BATCH 2 SPECIFIC DOMAIN EXTENSIONS
+// ==========================================
+
+export interface WeatherDataState {
+  isConfigured: boolean;
+  provider: string;
+  temperatureC: number | null;
+  rainfallMm: number | null;
+  humidityPct: number | null;
+  weatherCondition: string | null;
+  plantingSuitabilityInsight: string;
+  dataSourceNotice: string;
+}
+
+export interface SoilCompatibilityAnalysis {
+  selectedSoilType: SoilType;
+  selectedSoilCondition: SoilCondition;
+  drainageRate: 'Fast / Excessive' | 'Moderate / Ideal' | 'Slow / Prone to Pooling';
+  compactionRisk: 'High' | 'Moderate' | 'Low';
+  suitableSpecies: PlantSpecies[];
+  scientificExplanation: string;
+  amendmentRecommendations: string[];
+}
+
+export interface WateringRecommendation {
+  speciesId: string;
+  speciesName: string;
+  baseWeeklyLiters: number;
+  adjustedWeeklyLiters: number;
+  wateringFrequency: string;
+  isWeatherInformed: boolean;
+  guidanceType: 'Standard Botanical Baseline' | 'Live Weather Adjusted';
+  notes: string[];
+}
+
+export interface DbWateringLog {
+  id: string;
+  user_id: string | null;
+  species_id: string;
+  species_name: string;
+  watered_date: string;
+  amount_liters: number;
+  method: 'Hose' | 'Drip Line' | 'Bucket' | 'Rainfall';
+  notes?: string;
+  created_at: string;
+}
+
+export interface SunlightComparisonAnalysis {
+  locationSunlight: SunlightCondition;
+  speciesRequirement: SunlightCondition | 'Any';
+  compatibilityStatus: 'Optimal' | 'Tolerable' | 'Incompatible';
+  dailySunlightHoursEstimated: string;
+  analysisExplanation: string;
+  leafImpactWarning?: string;
+}
+
+export interface NativePlantFilterOptions {
+  selectedRegion: string;
+  ecologicalRole?: string;
+  minPollinatorValue?: boolean;
+}
+
+export interface SmartAssistantQuery {
+  locationName: string;
+  climateZone?: string;
+  soilType: SoilType;
+  soilCondition: SoilCondition;
+  sunlight: SunlightCondition;
+  waterAvailability: WaterAvailability;
+  targetObjective: 'Pollinator Support' | 'Drought Resilience' | 'Max Carbon Sequestration' | 'Shade & Cooling';
+}
+
+export interface SmartAssistantReport {
+  recommendedSpecies: PlantSpecies[];
+  primaryStrengths: string[];
+  ecologicalWarnings: string[];
+  wateringAdvice: string;
+  soilPreparationTip: string;
+  seasonalCalendarHighlight: string;
+  confidenceNotice: string;
+}

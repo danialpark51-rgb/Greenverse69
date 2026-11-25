@@ -13,7 +13,9 @@ import {
   Sparkles,
   X,
   CheckCircle2,
-  TreePine
+  TreePine,
+  Heart,
+  Medal,
 } from 'lucide-react';
 import { GreenCommunities } from '../components/community/GreenCommunities';
 import { SquadMatcher } from '../components/community/SquadMatcher';
@@ -22,6 +24,8 @@ import { GreenEvents } from '../components/community/GreenEvents';
 import { CommunityFeed } from '../components/community/CommunityFeed';
 import { TeamProgressDashboard } from '../components/community/TeamProgressDashboard';
 import { CommunityGreenBrain } from '../components/community/CommunityGreenBrain';
+import { VolunteerNetwork } from '../components/community/VolunteerNetwork';
+import { CommunityLeaderboard } from '../components/community/CommunityLeaderboard';
 import { getNotifications, markNotificationAsRead } from '../services/communityService';
 import { InAppNotification } from '../types/community';
 
@@ -72,6 +76,8 @@ export const CommunitiesPage: React.FC = () => {
     { id: 'feed', label: 'Community Feed', icon: MessageSquare, badge: 'Live' },
     { id: 'dashboard', label: 'Team Impact', icon: TrendingUp },
     { id: 'green-brain', label: 'Green Brain', icon: BookOpen, badge: 'Guides' },
+    { id: 'volunteers', label: 'Volunteer Network', icon: Heart, badge: 'Open' },
+    { id: 'leaderboard', label: 'Leaderboard', icon: Medal, badge: 'Ranked' },
   ];
 
   const currentUserId = user?.id || 'demo-user-id';
@@ -227,6 +233,14 @@ export const CommunitiesPage: React.FC = () => {
 
         {currentTab === 'green-brain' && (
           <CommunityGreenBrain currentUserId={currentUserId} currentUserName={currentUserName} />
+        )}
+
+        {currentTab === 'volunteers' && (
+          <VolunteerNetwork userId={currentUserId} userName={currentUserName} />
+        )}
+
+        {currentTab === 'leaderboard' && (
+          <CommunityLeaderboard />
         )}
       </div>
     </div>

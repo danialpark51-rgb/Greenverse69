@@ -785,7 +785,7 @@ export async function addSpendingRecord(
     receipt_url: spending.receipt_url || undefined,
     recorded_by: userId || null,
     recorded_by_name: userName || 'Project Controller',
-    is_verified: true,
+    is_verified: false, // Spending records are unverified until a project financial controller reviews them
     created_at: new Date().toISOString()
   };
 
@@ -832,7 +832,7 @@ export async function applyVolunteerRole(
     skills: app.skills || [],
     availability: app.availability || 'Weekends',
     motivation: app.motivation || 'Committed to environmental restoration',
-    status: 'approved', // auto-enroll for community accessibility
+    status: 'pending', // Applications start as pending; project owners approve/decline
     created_at: new Date().toISOString()
   };
 

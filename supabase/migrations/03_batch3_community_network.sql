@@ -276,5 +276,164 @@ CREATE POLICY "Users manage upvotes" ON public.green_brain_upvotes FOR ALL TO au
 CREATE POLICY "Users read own notifications" ON public.in_app_notifications FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Users update own notifications" ON public.in_app_notifications FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 
--- 16. GRANTS
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+-- ============================================================
+-- 16. VOLUNTEER OPPORTUNITIES TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.volunteer_opportunities (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID REFERENCES public.communities(id) ON DELETE SET NULL,
+    organizer_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    organizer_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    location_name TEXT NOT NULL,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    opportunity_date DATE NOT NULL,
+    start_time TEXT,
+    skills_needed TEXT[] DEFAULT '{}',
+    max_volunteers INTEGER DEFAULT 20 CHECK (max_volunteers > 0),
+    current_volunteers_count INTEGER DEFAULT 0 CHECK (current_volunteers_count >= 0),
+    status TEXT DEFAULT 'open' CHECK (status IN ('open', 'full', 'completed', 'cancelled')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.volunteer_opportunities ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_volunteer_opp_community ON public.volunteer_opportunities(community_id);
+CREATE INDEX IF NOT EXISTS idx_volunteer_opp_organizer ON public.volunteer_opportunities(organizer_id);
+CREATE INDEX IF NOT EXISTS idx_volunteer_opp_date ON public.volunteer_opportunities(opportunity_date);
+CREATE INDEX IF NOT EXISTS idx_volunteer_opp_status ON public.volunteer_opportunities(status);
+
+-- ============================================================
+-- 17. VOLUNTEER REGISTRATIONS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.volunteer_registrations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    opportunity_id UUID NOT NULL REFERENCES public.volunteer_opportunities(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,
+    status TEXT DEFAULT 'registered' CHECK (status IN ('registered', 'cancelled', 'attended')),
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (opportunity_id, user_id)
+);
+
+ALTER TABLE public.volunteer_registrations ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_volunteer_reg_opportunity ON public.volunteer_registrations(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_volunteer_reg_user ON public.volunteer_registrations(user_id);
+
+-- ============================================================
+-- 18. COMMUNITY LEADERBOARD SCORES TABLE
+--     Stores computed community scoring snapshots.
+--     Score = trees_planted_count*2 + members_count*1 + challenges_hosted*3
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.community_leaderboard_scores (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID NOT NULL REFERENCES public.communities(id) ON DELETE CASCADE,
+    score INTEGER NOT NULL DEFAULT 0,
+    trees_points INTEGER NOT NULL DEFAULT 0,
+    members_points INTEGER NOT NULL DEFAULT 0,
+    challenges_points INTEGER NOT NULL DEFAULT 0,
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (community_id)
+);
+
+ALTER TABLE public.community_leaderboard_scores ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_leaderboard_score ON public.community_leaderboard_scores(score DESC);
+
+-- ============================================================
+-- 19. RLS POLICIES — VOLUNTEER & LEADERBOARD
+-- ============================================================
+
+-- Volunteer Opportunities: public read, authenticated insert (by organizer), organizer update/delete
+CREATE POLICY "Public read volunteer opportunities"
+    ON public.volunteer_opportunities FOR SELECT USING (true);
+
+CREATE POLICY "Auth users create volunteer opportunities"
+    ON public.volunteer_opportunities FOR INSERT TO authenticated
+    WITH CHECK (auth.uid() = organizer_id);
+
+CREATE POLICY "Organizers update volunteer opportunities"
+    ON public.volunteer_opportunities FOR UPDATE TO authenticated
+    USING (auth.uid() = organizer_id)
+    WITH CHECK (auth.uid() = organizer_id);
+
+CREATE POLICY "Organizers delete volunteer opportunities"
+    ON public.volunteer_opportunities FOR DELETE TO authenticated
+    USING (auth.uid() = organizer_id);
+
+-- Volunteer Registrations: registrant or organizer can read; user inserts own; user updates own
+CREATE POLICY "Users read own registrations or as organizer"
+    ON public.volunteer_registrations FOR SELECT TO authenticated
+    USING (
+        auth.uid() = user_id
+        OR auth.uid() = (
+            SELECT organizer_id FROM public.volunteer_opportunities
+            WHERE id = opportunity_id LIMIT 1
+        )
+    );
+
+CREATE POLICY "Users register for opportunities"
+    ON public.volunteer_registrations FOR INSERT TO authenticated
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users update own registration status"
+    ON public.volunteer_registrations FOR UPDATE TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users cancel own registrations"
+    ON public.volunteer_registrations FOR DELETE TO authenticated
+    USING (auth.uid() = user_id);
+
+-- Community Leaderboard Scores: public read; no direct writes (managed by backend/triggers)
+CREATE POLICY "Public read leaderboard scores"
+    ON public.community_leaderboard_scores FOR SELECT USING (true);
+
+-- ============================================================
+-- 20. GRANTS — TABLE-SPECIFIC (replaces broad schema-wide grant)
+-- ============================================================
+
+-- Batch 3 tables — anon read-only where public data is intended
+GRANT SELECT ON public.communities TO anon;
+GRANT SELECT ON public.community_members TO anon;
+GRANT SELECT ON public.squads TO anon;
+GRANT SELECT ON public.squad_members TO anon;
+GRANT SELECT ON public.green_challenges TO anon;
+GRANT SELECT ON public.challenge_participations TO anon;
+GRANT SELECT ON public.green_events TO anon;
+GRANT SELECT ON public.event_rsvps TO anon;
+GRANT SELECT ON public.community_posts TO anon;
+GRANT SELECT ON public.post_likes TO anon;
+GRANT SELECT ON public.post_comments TO anon;
+GRANT SELECT ON public.green_brain_articles TO anon;
+GRANT SELECT ON public.green_brain_bookmarks TO anon;
+GRANT SELECT ON public.green_brain_upvotes TO anon;
+GRANT SELECT ON public.volunteer_opportunities TO anon;
+GRANT SELECT ON public.community_leaderboard_scores TO anon;
+-- anon has no access to volunteer_registrations (private: registrant & organizer only)
+-- anon has no access to in_app_notifications (private: owner only)
+
+-- Authenticated users — full DML on appropriate tables (RLS enforces row-level rules)
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.communities TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.community_members TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.squads TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.squad_members TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.green_challenges TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.challenge_participations TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.green_events TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_rsvps TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.community_posts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.post_likes TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.post_comments TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.green_brain_articles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.green_brain_bookmarks TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.green_brain_upvotes TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.in_app_notifications TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.volunteer_opportunities TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.volunteer_registrations TO authenticated;
+GRANT SELECT ON public.community_leaderboard_scores TO authenticated;
+-- leaderboard scores are read-only for all; computed server-side only

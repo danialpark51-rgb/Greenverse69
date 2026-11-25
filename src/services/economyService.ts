@@ -963,6 +963,16 @@ export async function fetchWalletTransactions(userId: string = 'demo-user'): Pro
   return localTransactions.filter(tx => tx.user_id === userId || userId === 'demo-user');
 }
 
+/**
+ * Awards green points to a user's wallet.
+ * 
+ * SECURITY NOTICE:
+ * In production Supabase schemas (Migration 05), direct client writes to `user_wallets`
+ * and `wallet_transactions` are rejected by RLS (Row Level Security). Points are issued
+ * securely on the backend via the `award_green_points()` SECURITY DEFINER function or
+ * database triggers. If direct client writes are rejected by RLS, this function logs a
+ * warning and records the credit in local memory so the user interface remains responsive.
+ */
 export async function awardWalletPoints(
   userId: string,
   points: number,
@@ -994,10 +1004,16 @@ export async function awardWalletPoints(
   localTransactions.unshift(newTx);
 
   try {
-    await supabase.from('user_wallets').upsert([wallet]);
-    await supabase.from('wallet_transactions').insert([newTx]);
-  } catch {
-    // fallback
+    const { error: walletErr } = await supabase.from('user_wallets').upsert([wallet]);
+    if (walletErr) {
+      console.warn('[Greenverse Economy] Direct wallet write blocked by RLS as intended. Points must be awarded via backend trigger or service_role.', walletErr.message);
+    }
+    const { error: txErr } = await supabase.from('wallet_transactions').insert([newTx]);
+    if (txErr) {
+      console.warn('[Greenverse Economy] Direct transaction insert blocked by RLS as intended.', txErr.message);
+    }
+  } catch (err) {
+    console.warn('[Greenverse Economy] Wallet sync fallback to local memory state.', err);
   }
 
   return newTx;

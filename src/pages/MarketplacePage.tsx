@@ -11,6 +11,7 @@ import {
   toggleBookmarkListing
 } from '../services/economyService';
 import { MarketplaceListing, MarketplaceCategory, MarketplaceListingType, MarketplaceItemCondition } from '../types/economy';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const CATEGORIES: { key: MarketplaceCategory | 'all'; label: string }[] = [
   { key: 'all', label: 'All Categories' },
@@ -79,6 +80,24 @@ export const MarketplacePage: React.FC = () => {
     loadListings();
   }, [selectedCat, selectedType, searchTerm]);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const channel = supabase
+      .channel('marketplace-listings-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'marketplace_listings' },
+        () => {
+          loadListings();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const handleBookmark = async (e: React.MouseEvent, itemId: string) => {
     e.stopPropagation();
     await toggleBookmarkListing(itemId);
@@ -121,10 +140,18 @@ export const MarketplacePage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <ShoppingBag className="w-6 h-6 text-emerald-600" />
-            Green Marketplace & Community Exchange
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <ShoppingBag className="w-6 h-6 text-emerald-600" />
+              Green Marketplace & Community Exchange
+            </h1>
+            {isSupabaseConfigured && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-semibold border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live Feed
+              </span>
+            )}
+          </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Trade native saplings, heirloom seeds, eco tools, and share restoration gear with community members.
           </p>

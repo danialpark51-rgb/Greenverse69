@@ -1,6 +1,8 @@
 -- ==============================================================================
 -- GREENVERSE — BATCH 2: SMART PLANTING INTELLIGENCE MIGRATION
--- Run this script in your Supabase SQL Editor (Dashboard -> SQL Editor -> New Query)
+-- File: supabase/migrations/02_batch2_planting_intelligence.sql
+-- Description: Database schema for site assessments, green deficit evaluations,
+--              planting plans, saved matches, and watering event logs.
 -- ==============================================================================
 
 -- 1. EXTENSIONS
@@ -68,13 +70,27 @@ CREATE TABLE IF NOT EXISTS public.saved_species_matches (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 6. ENABLE ROW LEVEL SECURITY
+-- 6. WATERING LOGS TABLE (Batch 2 Watering Intelligence Tracker)
+CREATE TABLE IF NOT EXISTS public.watering_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    species_id TEXT NOT NULL,
+    species_name TEXT NOT NULL,
+    watered_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    amount_liters NUMERIC(6, 2) NOT NULL,
+    method TEXT NOT NULL DEFAULT 'Hose',
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 7. ENABLE ROW LEVEL SECURITY
 ALTER TABLE public.site_assessments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.green_deficit_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.planting_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.saved_species_matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watering_logs ENABLE ROW LEVEL SECURITY;
 
--- 7. RLS POLICIES FOR SITE ASSESSMENTS
+-- 8. RLS POLICIES FOR SITE ASSESSMENTS
 DROP POLICY IF EXISTS "Public can view all site assessments" ON public.site_assessments;
 CREATE POLICY "Public can view all site assessments" ON public.site_assessments
     FOR SELECT USING (true);
@@ -87,7 +103,7 @@ DROP POLICY IF EXISTS "Anon can insert site assessments" ON public.site_assessme
 CREATE POLICY "Anon can insert site assessments" ON public.site_assessments
     FOR INSERT TO anon WITH CHECK (user_id IS NULL);
 
--- 8. RLS POLICIES FOR GREEN DEFICIT EVALUATIONS
+-- 9. RLS POLICIES FOR GREEN DEFICIT EVALUATIONS
 DROP POLICY IF EXISTS "Public can view green deficit evaluations" ON public.green_deficit_evaluations;
 CREATE POLICY "Public can view green deficit evaluations" ON public.green_deficit_evaluations
     FOR SELECT USING (true);
@@ -100,7 +116,7 @@ DROP POLICY IF EXISTS "Anon can insert green deficit evaluations" ON public.gree
 CREATE POLICY "Anon can insert green deficit evaluations" ON public.green_deficit_evaluations
     FOR INSERT TO anon WITH CHECK (user_id IS NULL);
 
--- 9. RLS POLICIES FOR PLANTING PLANS
+-- 10. RLS POLICIES FOR PLANTING PLANS
 DROP POLICY IF EXISTS "Public can view planting plans" ON public.planting_plans;
 CREATE POLICY "Public can view planting plans" ON public.planting_plans
     FOR SELECT USING (true);
@@ -113,13 +129,23 @@ DROP POLICY IF EXISTS "Users can update own planting plans" ON public.planting_p
 CREATE POLICY "Users can update own planting plans" ON public.planting_plans
     FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 
--- 10. RLS POLICIES FOR SAVED SPECIES MATCHES
+-- 11. RLS POLICIES FOR SAVED SPECIES MATCHES
 DROP POLICY IF EXISTS "Users can manage own saved species" ON public.saved_species_matches;
 CREATE POLICY "Users can manage own saved species" ON public.saved_species_matches
     FOR ALL TO authenticated USING (auth.uid() = user_id);
 
--- 11. GRANT ROLES
+-- 12. RLS POLICIES FOR WATERING LOGS
+DROP POLICY IF EXISTS "Users can view watering logs" ON public.watering_logs;
+CREATE POLICY "Users can view watering logs" ON public.watering_logs
+    FOR SELECT TO authenticated USING (auth.uid() = user_id OR user_id IS NULL);
+
+DROP POLICY IF EXISTS "Users can insert watering logs" ON public.watering_logs;
+CREATE POLICY "Users can insert watering logs" ON public.watering_logs
+    FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
+
+-- 13. GRANT ROLES
 GRANT SELECT, INSERT, UPDATE ON public.site_assessments TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.green_deficit_evaluations TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.planting_plans TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.saved_species_matches TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.watering_logs TO anon, authenticated;

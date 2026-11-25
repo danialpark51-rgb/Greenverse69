@@ -14,7 +14,11 @@ import {
   CommunityRole,
   SquadRole,
   RSVPStatus,
-  EnvironmentalSkill
+  EnvironmentalSkill,
+  DbVolunteerOpportunity,
+  DbVolunteerRegistration,
+  CommunityLeaderboardEntry,
+  MemberLeaderboardEntry,
 } from '../types/community';
 
 // ==========================================
@@ -1251,4 +1255,252 @@ export async function upvoteGreenBrainArticle(articleId: string, userId?: string
 export const bookmarkGreenBrainArticle = toggleArticleBookmark;
 export const getNotifications = fetchUserNotifications;
 export const markNotificationAsRead = markNotificationRead;
+
+// ============================================================
+// VOLUNTEER NETWORK — Batch 3
+// ============================================================
+
+let localVolunteerOpportunities: DbVolunteerOpportunity[] = [];
+
+export async function fetchVolunteerOpportunities(filters?: {
+  communityId?: string;
+  status?: string;
+}): Promise<{ data: DbVolunteerOpportunity[]; fromSupabase: boolean }> {
+  try {
+    let query = supabase
+      .from('volunteer_opportunities')
+      .select('*')
+      .order('opportunity_date', { ascending: true });
+
+    if (filters?.communityId) {
+      query = query.eq('community_id', filters.communityId);
+    }
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as DbVolunteerOpportunity[];
+    // Merge any locally created opportunities (offline fallback)
+    const merged = [...rows];
+    for (const local of localVolunteerOpportunities) {
+      if (!merged.find(r => r.id === local.id)) merged.push(local);
+    }
+    return { data: merged, fromSupabase: true };
+  } catch {
+    return { data: [...localVolunteerOpportunities], fromSupabase: false };
+  }
+}
+
+export async function createVolunteerOpportunity(
+  input: Omit<DbVolunteerOpportunity, 'id' | 'created_at' | 'updated_at' | 'current_volunteers_count' | 'userRegistration'>,
+  userId: string
+): Promise<{ data: DbVolunteerOpportunity | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('volunteer_opportunities')
+      .insert({ ...input, organizer_id: userId, current_volunteers_count: 0 })
+      .select()
+      .single();
+    if (error) throw error;
+    return { data: data as DbVolunteerOpportunity, error: null };
+  } catch (err: unknown) {
+    // Offline fallback: store locally (not persisted to DB)
+    const local: DbVolunteerOpportunity = {
+      ...input,
+      id: `local-${Date.now()}`,
+      organizer_id: userId,
+      current_volunteers_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    localVolunteerOpportunities = [local, ...localVolunteerOpportunities];
+    return { data: local, error: null };
+  }
+}
+
+export async function registerForOpportunity(
+  opportunityId: string,
+  userId: string,
+  displayName: string
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const { error } = await supabase
+      .from('volunteer_registrations')
+      .insert({ opportunity_id: opportunityId, user_id: userId, display_name: displayName, status: 'registered' });
+    if (error) {
+      if (error.code === '23505') return { success: false, error: 'You are already registered for this opportunity.' };
+      throw error;
+    }
+    // Increment counter on the opportunity
+    await supabase.rpc('increment_volunteer_count', { opp_id: opportunityId }).then(() => {});
+    return { success: true, error: null };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Registration failed.';
+    return { success: false, error: msg };
+  }
+}
+
+export async function cancelVolunteerRegistration(
+  opportunityId: string,
+  userId: string
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const { error } = await supabase
+      .from('volunteer_registrations')
+      .update({ status: 'cancelled' })
+      .eq('opportunity_id', opportunityId)
+      .eq('user_id', userId);
+    if (error) throw error;
+    return { success: true, error: null };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Cancellation failed.';
+    return { success: false, error: msg };
+  }
+}
+
+export async function fetchMyVolunteerRegistrations(
+  userId: string
+): Promise<DbVolunteerRegistration[]> {
+  try {
+    const { data, error } = await supabase
+      .from('volunteer_registrations')
+      .select('*')
+      .eq('user_id', userId)
+      .order('registered_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as DbVolunteerRegistration[];
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
+// COMMUNITY LEADERBOARD — Batch 3
+// Scoring: communities → trees×2 + members×1 + (no direct challenge agg)
+//          members → trees_registered×3 + challenges_completed×5 + events_rsvpd×1
+// ============================================================
+
+export async function fetchCommunityLeaderboard(): Promise<{
+  data: CommunityLeaderboardEntry[];
+  fromSupabase: boolean;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('communities')
+      .select('id, name, avatar_url, location_name, trees_planted_count, members_count')
+      .order('trees_planted_count', { ascending: false });
+    if (error) throw error;
+
+    const rows = (data ?? []) as {
+      id: string;
+      name: string;
+      avatar_url: string | null;
+      location_name: string;
+      trees_planted_count: number;
+      members_count: number;
+    }[];
+
+    const scored = rows
+      .map(r => {
+        const trees_points = (r.trees_planted_count ?? 0) * 2;
+        const members_points = (r.members_count ?? 0) * 1;
+        const challenges_points = 0; // aggregated server-side in a future batch
+        const score = trees_points + members_points + challenges_points;
+        return {
+          community_id: r.id,
+          community_name: r.name,
+          avatar_url: r.avatar_url,
+          location_name: r.location_name ?? '',
+          trees_planted_count: r.trees_planted_count ?? 0,
+          members_count: r.members_count ?? 0,
+          score,
+          rank: 0,
+          score_breakdown: { trees_points, members_points, challenges_points },
+        } as CommunityLeaderboardEntry;
+      })
+      .sort((a, b) => b.score - a.score)
+      .map((entry, i) => ({ ...entry, rank: i + 1 }));
+
+    return { data: scored, fromSupabase: true };
+  } catch {
+    return { data: [], fromSupabase: false };
+  }
+}
+
+export async function fetchMemberLeaderboard(
+  communityId?: string
+): Promise<{ data: MemberLeaderboardEntry[]; fromSupabase: boolean }> {
+  try {
+    // Fetch community members as the user base
+    let membersQuery = supabase
+      .from('community_members')
+      .select('user_id, display_name, joined_at');
+    if (communityId) {
+      membersQuery = membersQuery.eq('community_id', communityId);
+    }
+    const { data: membersData, error: membersErr } = await membersQuery;
+    if (membersErr) throw membersErr;
+
+    const members = (membersData ?? []) as { user_id: string; display_name: string }[];
+    if (members.length === 0) return { data: [], fromSupabase: true };
+
+    const userIds = [...new Set(members.map(m => m.user_id))];
+
+    // Fetch challenge completions
+    const { data: challengeData } = await supabase
+      .from('challenge_participations')
+      .select('user_id, completed')
+      .in('user_id', userIds)
+      .eq('completed', true);
+
+    // Fetch event RSVPs
+    const { data: eventData } = await supabase
+      .from('event_rsvps')
+      .select('user_id, status')
+      .in('user_id', userIds)
+      .eq('status', 'attending');
+
+    // Count per user
+    const challengeCounts: Record<string, number> = {};
+    for (const cp of challengeData ?? []) {
+      challengeCounts[cp.user_id] = (challengeCounts[cp.user_id] ?? 0) + 1;
+    }
+    const eventCounts: Record<string, number> = {};
+    for (const ev of eventData ?? []) {
+      eventCounts[ev.user_id] = (eventCounts[ev.user_id] ?? 0) + 1;
+    }
+
+    // Build unique-by-user entries (take first display_name per user)
+    const seen = new Set<string>();
+    const entries: MemberLeaderboardEntry[] = [];
+    for (const m of members) {
+      if (seen.has(m.user_id)) continue;
+      seen.add(m.user_id);
+      const challenges_completed = challengeCounts[m.user_id] ?? 0;
+      const events_attended = eventCounts[m.user_id] ?? 0;
+      // trees_registered: not aggregated here without joining trees table (avoid cross-batch coupling)
+      const trees_registered = 0;
+      const score = trees_registered * 3 + challenges_completed * 5 + events_attended * 1;
+      entries.push({
+        user_id: m.user_id,
+        display_name: m.display_name ?? 'Anonymous',
+        trees_registered,
+        challenges_completed,
+        events_attended,
+        score,
+        rank: 0,
+      });
+    }
+
+    const ranked = entries
+      .sort((a, b) => b.score - a.score)
+      .map((e, i) => ({ ...e, rank: i + 1 }));
+
+    return { data: ranked, fromSupabase: true };
+  } catch {
+    return { data: [], fromSupabase: false };
+  }
+}
 

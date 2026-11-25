@@ -25,6 +25,7 @@ import {
   getPostComments,
   addPostComment
 } from '../../services/communityService';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 interface CommunityFeedProps {
   currentUserId?: string;
@@ -67,6 +68,29 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({
 
   useEffect(() => {
     loadPosts();
+
+    if (!isSupabaseConfigured) return;
+    const channel = supabase
+      .channel('community-feed-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'community_posts' },
+        () => {
+          loadPosts();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'post_likes' },
+        () => {
+          loadPosts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleLike = async (postId: string) => {

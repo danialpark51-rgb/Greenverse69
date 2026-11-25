@@ -121,7 +121,10 @@ export async function fetchTrees(options?: { userId?: string; search?: string })
   fromSupabase: boolean;
 }> {
   try {
-    let query = supabase.from('trees').select('*').order('created_at', { ascending: false });
+    // When requesting personal trees, query the base 'trees' table where authenticated user has full RLS access.
+    // When exploring public community trees, query the security-barrier 'public_trees' view.
+    const target = options?.userId ? 'trees' : 'public_trees';
+    let query = supabase.from(target).select('*').order('created_at', { ascending: false });
 
     if (options?.userId) {
       query = query.eq('user_id', options.userId);
@@ -130,7 +133,7 @@ export async function fetchTrees(options?: { userId?: string; search?: string })
     const { data, error } = await query;
 
     if (error) {
-      console.warn('[Greenverse Trees] Notice on fetching trees:', error.message);
+      console.warn(`[Greenverse Trees] Notice on fetching from ${target}:`, error.message);
       // Filter local cache gracefully
       let filtered = [...localTreesCache];
       if (options?.userId) {
@@ -170,13 +173,16 @@ export async function fetchTrees(options?: { userId?: string; search?: string })
 
 export async function fetchTreeByIdOrCode(idOrCode: string): Promise<DbTree | null> {
   try {
-    // 1. Try by UUID
-    const { data: byId } = await supabase.from('trees').select('*').eq('id', idOrCode).maybeSingle();
+    // 1. Try public_trees view first for public accessibility
+    const { data: byId } = await supabase.from('public_trees').select('*').eq('id', idOrCode).maybeSingle();
     if (byId) return byId as DbTree;
 
-    // 2. Try by tree_code
-    const { data: byCode } = await supabase.from('trees').select('*').eq('tree_code', idOrCode).maybeSingle();
+    const { data: byCode } = await supabase.from('public_trees').select('*').eq('tree_code', idOrCode).maybeSingle();
     if (byCode) return byCode as DbTree;
+
+    // 2. Fallback to base trees table if authenticated owner
+    const { data: rawById } = await supabase.from('trees').select('*').eq('id', idOrCode).maybeSingle();
+    if (rawById) return rawById as DbTree;
   } catch (err) {
     console.warn('[Greenverse Trees] ID lookup exception:', err);
   }
@@ -211,6 +217,8 @@ export async function registerTree(input: RegisterTreeInput, userId?: string): P
     carbon_offset_kg: Number(((input.height_meters || 1.2) * 5.2).toFixed(1)),
     notes: input.notes?.trim() || null,
     user_id: userId || null,
+    is_private_location: input.is_private_location || false,
+    is_archived: false,
   };
 
   try {
@@ -254,7 +262,7 @@ export async function registerTree(input: RegisterTreeInput, userId?: string): P
 export async function fetchGrowthLogs(treeId: string): Promise<DbGrowthLog[]> {
   try {
     const { data, error } = await supabase
-      .from('tree_growth_logs')
+      .from('public_growth_logs')
       .select('*')
       .eq('tree_id', treeId)
       .order('recorded_date', { ascending: false });
@@ -331,7 +339,7 @@ export async function createGrowthLog(input: CreateGrowthLogInput, userId?: stri
 
 export async function fetchTreeAdoptions(treeId?: string): Promise<DbAdoption[]> {
   try {
-    let q = supabase.from('tree_adoptions').select('*').order('adoption_date', { ascending: false });
+    let q = supabase.from('public_tree_adoptions').select('*').order('adoption_date', { ascending: false });
     if (treeId) q = q.eq('tree_id', treeId);
     const { data, error } = await q;
 
@@ -343,6 +351,27 @@ export async function fetchTreeAdoptions(treeId?: string): Promise<DbAdoption[]>
   }
 
   return treeId ? localAdoptionsCache.filter(a => a.tree_id === treeId) : localAdoptionsCache;
+}
+
+export async function concludeTreeAdoption(adoptionId: string): Promise<{
+  success: boolean;
+  error: Error | null;
+}> {
+  try {
+    const { data, error } = await supabase.rpc('conclude_tree_adoption', {
+      p_adoption_id: adoptionId,
+    });
+    if (error) {
+      return { success: false, error: new Error(error.message) };
+    }
+    // Update local cache
+    localAdoptionsCache = localAdoptionsCache.map(a =>
+      a.id === adoptionId ? { ...a, status: 'concluded' } : a
+    );
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: err };
+  }
 }
 
 export async function adoptTree(input: AdoptTreeInput, userId: string): Promise<{
@@ -405,7 +434,7 @@ export async function adoptTree(input: AdoptTreeInput, userId: string): Promise<
 
 export async function fetchTreeCareTasks(treeId?: string): Promise<DbCareTask[]> {
   try {
-    let q = supabase.from('tree_care_tasks').select('*').order('due_date', { ascending: true });
+    let q = supabase.from('public_tree_care_tasks').select('*').order('due_date', { ascending: true });
     if (treeId) q = q.eq('tree_id', treeId);
     const { data, error } = await q;
 
@@ -430,8 +459,6 @@ export async function createCareTask(input: CreateCareTaskInput, userId?: string
     title: input.title.trim(),
     description: input.description?.trim() || null,
     due_date: input.due_date,
-    completed: false,
-    completed_at: null,
     priority: input.priority,
   };
 
@@ -447,6 +474,8 @@ export async function createCareTask(input: CreateCareTaskInput, userId?: string
       const fallbackTask: DbCareTask = {
         id: `task-${Date.now()}`,
         ...payload,
+        completed: false,
+        completed_at: null,
         created_at: new Date().toISOString(),
       };
       localTasksCache.unshift(fallbackTask);
@@ -456,6 +485,8 @@ export async function createCareTask(input: CreateCareTaskInput, userId?: string
     const fallbackTask: DbCareTask = {
       id: `task-${Date.now()}`,
       ...payload,
+      completed: false,
+      completed_at: null,
       created_at: new Date().toISOString(),
     };
     localTasksCache.unshift(fallbackTask);
@@ -469,19 +500,23 @@ export async function toggleCareTask(taskId: string, completed: boolean): Promis
   const completed_at = completed ? new Date().toISOString() : null;
 
   try {
-    const { error } = await supabase
-      .from('tree_care_tasks')
-      .update({ completed, completed_at })
-      .eq('id', taskId);
+    // Call the hardened SECURITY DEFINER toggle_care_task RPC function
+    const { data, error } = await supabase.rpc('toggle_care_task', {
+      p_task_id: taskId,
+      p_completed: completed,
+    });
 
-    if (!error) {
+    if (!error && data) {
       localTasksCache = localTasksCache.map(t =>
-        t.id === taskId ? { ...t, completed, completed_at } : t
+        t.id === taskId ? { ...t, completed: data.completed, completed_at: data.completed_at, completed_by: data.completed_by } : t
       );
       return true;
     }
+    if (error) {
+      console.warn('[Greenverse Tasks] RPC toggle error:', error.message);
+    }
   } catch (err) {
-    console.warn('[Greenverse Tasks] Toggle error:', err);
+    console.warn('[Greenverse Tasks] Toggle exception:', err);
   }
 
   // Update in local cache

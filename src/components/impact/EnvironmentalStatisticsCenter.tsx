@@ -51,7 +51,7 @@ export const EnvironmentalStatisticsCenter: React.FC = () => {
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-600 flex items-start gap-3">
         <Info className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
         <div>
-          <span className="font-bold text-slate-800">Data-Quality & Calculation Standards:</span> All statistics strictly distinguish verified data from self-reported records. Biomass calculations follow standard forestry equations; water efficiency is derived from recorded drip irrigation and mulch collars.
+          <span className="font-bold text-slate-800">Data-Quality & Calculation Standards (Demo Benchmarks):</span> Global and regional aggregates reflect platform seed ecosystem benchmarks and illustrative restoration models. Individual verified entries are derived from registered tree passports and ground audit passes. Biomass calculations follow standard FAO forestry equations (21.77 kg CO₂/tree/yr).
         </div>
       </div>
 

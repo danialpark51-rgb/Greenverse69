@@ -365,6 +365,9 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                     <input type="checkbox" checked={pledgeAnon} onChange={e => setPledgeAnon(e.target.checked)} className="rounded" />
                     Register as anonymous supporter (name hidden from public list)
                   </label>
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed">
+                    <strong>Payment Disclosure:</strong> Payment processing is not configured in this deployment. Submitting this form records a community pledge of intent only. No payment gateway transaction will take place and no money is transferred.
+                  </div>
                   <div className="flex gap-3">
                     <button type="button" onClick={() => setShowPledgeForm(false)}
                       className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900">Cancel</button>

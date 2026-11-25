@@ -82,6 +82,15 @@ export const GreenImpactDashboard: React.FC<GreenImpactDashboardProps> = ({ curr
         </div>
       </div>
 
+      {(!currentUserId || currentUserId === 'demo-user') && (
+        <div className="flex items-start gap-2.5 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
+          <AlertCircle className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+          <span>
+            <strong>Demonstration Profile Metrics:</strong> Showing illustrative account achievements. As you plant trees and record verified care logs with your account, your personal ledger updates automatically.
+          </span>
+        </div>
+      )}
+
       {/* Primary Impact Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Verified Trees */}
