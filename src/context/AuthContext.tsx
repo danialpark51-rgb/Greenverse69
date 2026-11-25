@@ -138,8 +138,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (currentUser) {
           await loadProfile(currentUser.id, currentUser.email, currentUser.user_metadata);
         }
-      } catch (err) {
-        console.warn('[Greenverse Auth] Session hydration caught:', err);
+      } catch (err: any) {
+        console.warn('[Greenverse Auth] Session hydration notice:', err?.message || err);
       } finally {
         if (isMountedRef.current) {
           setLoading(false);

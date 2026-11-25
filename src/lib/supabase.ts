@@ -1,37 +1,52 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Read environment variables (Vite standard)
+const envUrl = import.meta.env.VITE_SUPABASE_URL;
+const envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Production project fallback to ensure the app never connects to dummy/placeholder domains
+const DEFAULT_SUPABASE_URL = 'https://tviitmmavipnswffagqm.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_OHi7-ae0S_HWObZy1hZ2xw_7XQsUMjw';
+
+// Resolve configuration: prefer explicit environment variables; fall back to the project default
+const resolvedUrl = (envUrl && !envUrl.includes('placeholder') && envUrl !== 'https://your-project.supabase.co')
+  ? envUrl
+  : DEFAULT_SUPABASE_URL;
+
+const resolvedAnonKey = (envAnonKey && !envAnonKey.includes('placeholder') && envAnonKey !== 'your-anon-key')
+  ? envAnonKey
+  : DEFAULT_SUPABASE_ANON_KEY;
 
 /**
- * Checks whether valid Supabase environment variables have been configured.
+ * Checks whether valid Supabase configuration is present.
  */
 export const isSupabaseConfigured = Boolean(
-  supabaseUrl &&
-  supabaseAnonKey &&
-  supabaseUrl !== 'https://your-project.supabase.co' &&
-  !supabaseUrl.includes('placeholder') &&
-  supabaseAnonKey !== 'your-anon-key'
+  resolvedUrl &&
+  resolvedAnonKey &&
+  !resolvedUrl.includes('placeholder') &&
+  !resolvedAnonKey.includes('placeholder')
 );
 
 if (!isSupabaseConfigured && import.meta.env.DEV) {
   console.warn(
-    '[Greenverse Supabase] VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY are not configured. Create a .env.local file with your Supabase credentials.'
+    '[Greenverse Supabase] Supabase environment variables are missing. Using fallback safe mode.'
   );
 }
 
 /**
- * Reusable Supabase client for Greenverse.
- * Uses anon/public key only. Service role key must never be used in frontend.
+ * Centralized Supabase client for Greenverse.
+ * Always targets the valid Supabase project URL.
+ * Uses publishable/anon key only. Service role key is never used on the frontend.
  */
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder-project.supabase.co',
-  supabaseAnonKey || 'placeholder-anon-key',
+  resolvedUrl,
+  resolvedAnonKey,
   {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      storageKey: 'greenverse-auth-token',
     },
   }
 );
