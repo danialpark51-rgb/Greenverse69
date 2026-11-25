@@ -1,246 +1,234 @@
-import React, { useState } from 'react';
-import { MOCK_SQUADS, MOCK_MISSIONS } from '../data/mockData';
-import { Squad } from '../types';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/common/Card';
-import { Badge } from '../components/common/Badge';
-import { Button } from '../components/common/Button';
-import { SearchInput } from '../components/common/SearchInput';
-import { Modal } from '../components/common/Modal';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   Users,
+  Compass,
   Trophy,
-  TreeDeciduous,
-  Heart,
-  PlusCircle,
-  MapPin,
-  CheckCircle2,
   Calendar,
+  MessageSquare,
+  TrendingUp,
+  BookOpen,
+  Bell,
   Sparkles,
-  ArrowRight
+  X,
+  CheckCircle2,
+  TreePine
 } from 'lucide-react';
+import { GreenCommunities } from '../components/community/GreenCommunities';
+import { SquadMatcher } from '../components/community/SquadMatcher';
+import { GreenChallenges } from '../components/community/GreenChallenges';
+import { GreenEvents } from '../components/community/GreenEvents';
+import { CommunityFeed } from '../components/community/CommunityFeed';
+import { TeamProgressDashboard } from '../components/community/TeamProgressDashboard';
+import { CommunityGreenBrain } from '../components/community/CommunityGreenBrain';
+import { getNotifications, markNotificationAsRead } from '../services/communityService';
+import { InAppNotification } from '../types/community';
 
 export const CommunitiesPage: React.FC = () => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [createSuccess, setCreateSuccess] = useState(false);
-  const [squadsList, setSquadsList] = useState(MOCK_SQUADS);
-
-  // New squad form state
-  const [newSquadName, setNewSquadName] = useState('');
-  const [newSquadChapter, setNewSquadChapter] = useState('');
-  const [newSquadTagline, setNewSquadTagline] = useState('');
-
-  const filteredSquads = squadsList.filter(
-    (sq) =>
-      sq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sq.chapter.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const handleCreateSquad = (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateSuccess(true);
-    setTimeout(() => {
-      setSquadsList([
-        {
-          id: `sq-${Date.now()}`,
-          name: newSquadName || 'Northern Rewilding Cohort',
-          tagline: newSquadTagline || 'Community reforestation & seed harvesting.',
-          chapter: newSquadChapter || 'Regional Hub',
-          membersCount: 1,
-          treesPlanted: 0,
-          survivalRate: 100,
-          rank: squadsList.length + 1,
-          badge: 'Initiate Reforester',
-          avatar: '🌱',
-        },
-        ...squadsList,
-      ]);
-      setCreateSuccess(false);
-      setIsCreateModalOpen(false);
-    }, 1000);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user, profile } = useAuth();
+  
+  const currentTab = searchParams.get('tab') || 'communities';
+  const setTab = (tabId: string) => {
+    setSearchParams({ tab: tabId });
   };
 
+  // Notifications
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const loadNotifs = async () => {
+      try {
+        const notifs = await getNotifications();
+        setNotifications(notifs);
+        setUnreadCount(notifs.filter(n => !n.is_read).length);
+      } catch (err) {
+        console.error('Failed to load notifications:', err);
+      }
+    };
+    loadNotifs();
+  }, []);
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      await markNotificationAsRead(id);
+      setNotifications(prev =>
+        prev.map((n: InAppNotification) => (n.id === id ? { ...n, is_read: true } : n))
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error('Failed to mark notification read:', err);
+    }
+  };
+
+  const tabs = [
+    { id: 'communities', label: 'Communities', icon: Users, badge: 'Hub' },
+    { id: 'squads', label: 'Squad Matcher', icon: Compass, badge: 'Match' },
+    { id: 'challenges', label: 'Challenges', icon: Trophy, badge: 'Sprint' },
+    { id: 'events', label: 'Green Events', icon: Calendar, badge: 'Map' },
+    { id: 'feed', label: 'Community Feed', icon: MessageSquare, badge: 'Live' },
+    { id: 'dashboard', label: 'Team Impact', icon: TrendingUp },
+    { id: 'green-brain', label: 'Green Brain', icon: BookOpen, badge: 'Guides' },
+  ];
+
+  const currentUserId = user?.id || 'demo-user-id';
+  const currentUserName = profile?.full_name || user?.email?.split('@')[0] || 'Environmental Steward';
+
   return (
-    <div className="space-y-6">
-      {/* Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Users className="w-6 h-6 text-forest-700" />
-            Eco-Communities & Planting Squads
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Join local neighborhood chapters, participate in competitive planting sprints, and earn collective eco-badges.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<PlusCircle className="w-4 h-4" />}
-            onClick={() => setIsCreateModalOpen(true)}
-          >
-            Create a Squad
-          </Button>
-        </div>
-      </div>
-
-      {/* Leaderboard Top Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-forest-deep via-forest-rich to-forest-moss text-white flex flex-col md:flex-row md:items-center justify-between gap-6 border border-forest-moss/60">
-        <div className="space-y-1">
-          <div className="text-[10px] uppercase font-bold text-lime-400 tracking-wider flex items-center gap-1.5">
-            <Trophy className="w-4 h-4" /> Global Community Standings
-          </div>
-          <h2 className="text-xl font-bold text-white">42 Verified Chapters Active Worldwide</h2>
-          <p className="text-xs text-forest-200">
-            Over <strong className="text-white">147,900 trees</strong> planted collectively by volunteer squads this season alone.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-4 bg-forest-rich/80 px-4 py-3 rounded-xl border border-forest-emerald/40 text-xs shrink-0">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Top Header */}
+      <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200/80 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <div className="text-forest-300 text-[10px]">Your Squad:</div>
-            <div className="font-bold text-white text-sm">Cascadia Canopy Guardians</div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold uppercase tracking-wider mb-2 border border-emerald-100">
+              <TreePine className="w-3.5 h-3.5 text-emerald-600" />
+              Greenverse Collective Network • Batch 3
+            </div>
+            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+              Community & Squad Network
+            </h1>
+            <p className="text-sm text-slate-600 mt-1 max-w-2xl leading-relaxed">
+              Connect with fellow canopy guardians, form hyper-local planting squads, coordinate field events with real OpenStreetMap coordinates, and share arborist wisdom.
+            </p>
           </div>
-          <div className="h-8 w-px bg-forest-moss/60" />
-          <div>
-            <div className="text-forest-300 text-[10px]">Global Rank:</div>
-            <div className="font-bold text-lime-400 text-sm">#1 Ranked</div>
-          </div>
-        </div>
-      </div>
 
-      {/* Squads Grid */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="max-w-md w-full">
-            <SearchInput
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onClear={() => setSearchTerm('')}
-              placeholder="Search squads by name or regional chapter..."
-            />
-          </div>
-          <span className="text-xs text-slate-500 font-medium">
-            Showing {filteredSquads.length} eco-squads
-          </span>
-        </div>
+          {/* Notifications Trigger */}
+          <div className="relative">
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="relative p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors flex items-center gap-2 text-slate-700"
+              title="Community Activity Notifications"
+            >
+              <Bell className="w-5 h-5 text-slate-700" />
+              <span className="text-xs font-semibold hidden sm:inline">Alerts</span>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center shadow">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredSquads.map((squad) => (
-            <Card key={squad.id} hoverEffect className="overflow-hidden">
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-forest-100 flex items-center justify-center text-2xl shadow-sm border border-forest-200">
-                      {squad.avatar}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold text-slate-900">{squad.name}</h3>
-                        <Badge variant="forest" size="sm">#{squad.rank}</Badge>
-                      </div>
-                      <p className="text-xs text-slate-500">{squad.chapter}</p>
-                    </div>
+            {/* Notifications Dropdown */}
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 z-50 animate-fadeIn">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Network Notifications
+                    </h4>
                   </div>
-
-                  <Badge variant="lime" size="sm">{squad.badge}</Badge>
-                </div>
-
-                <p className="text-xs text-slate-600 mt-3 leading-relaxed">{squad.tagline}</p>
-
-                <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 bg-slate-50 rounded-lg">
-                    <div className="text-[10px] text-slate-400">Members</div>
-                    <div className="font-bold text-slate-800">{squad.membersCount}</div>
-                  </div>
-                  <div className="p-2 bg-slate-50 rounded-lg">
-                    <div className="text-[10px] text-slate-400">Trees Planted</div>
-                    <div className="font-bold text-forest-700">{squad.treesPlanted.toLocaleString()}</div>
-                  </div>
-                  <div className="p-2 bg-slate-50 rounded-lg">
-                    <div className="text-[10px] text-slate-400">Survival Rate</div>
-                    <div className="font-bold text-emerald-700">{squad.survivalRate}%</div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={() => alert(`Joined ${squad.name}! Welcome to the squad.`)}
+                  <button
+                    onClick={() => setShowNotifications(false)}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md"
                   >
-                    Join Squad
-                  </Button>
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {notifications.length === 0 ? (
+                    <div className="text-center py-6 text-xs text-slate-400">
+                      No notifications at this time
+                    </div>
+                  ) : (
+                    notifications.map(notif => (
+                      <div
+                        key={notif.id}
+                        onClick={() => handleMarkAsRead(notif.id)}
+                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                          notif.is_read
+                            ? 'bg-slate-50/50 border-slate-100 text-slate-600'
+                            : 'bg-emerald-50/50 border-emerald-200 text-slate-900 font-medium'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold text-slate-900">{notif.title}</span>
+                          {!notif.is_read && (
+                            <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-snug">{notif.message}</p>
+                        <span className="text-[10px] text-slate-400 mt-1.5 block">
+                          {new Date(notif.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Tab Navigation Navigation Bar */}
+        <div className="mt-8 flex items-center gap-2 overflow-x-auto pb-1 border-t border-slate-100 pt-6 scrollbar-none">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            const isActive = currentTab === tab.id;
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setTab(tab.id)}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-semibold whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'bg-slate-900 text-white shadow-sm ring-2 ring-slate-900/10'
+                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : 'text-slate-500'}`} />
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      isActive
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Create Squad Modal */}
-      <Modal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        title="Form New Eco-Planting Squad"
-        description="Rally local neighbors, organize tree care patrols, and compete on the global leaderboard."
-      >
-        {createSuccess ? (
-          <div className="py-6 text-center space-y-2">
-            <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-            <h4 className="text-sm font-semibold text-slate-900">Eco-Squad Created!</h4>
-            <p className="text-xs text-slate-500">Your squad is now live on the Greenverse planetary roster.</p>
-          </div>
-        ) : (
-          <form onSubmit={handleCreateSquad} className="space-y-4 text-xs">
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Squad Name</label>
-              <input
-                type="text"
-                required
-                value={newSquadName}
-                onChange={(e) => setNewSquadName(e.target.value)}
-                placeholder="e.g. River Bend Rewilders"
-                className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800"
-              />
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Regional Chapter</label>
-              <input
-                type="text"
-                required
-                value={newSquadChapter}
-                onChange={(e) => setNewSquadChapter(e.target.value)}
-                placeholder="e.g. Twin Cities Metro, MN"
-                className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800"
-              />
-            </div>
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">Squad Tagline & Mission Focus</label>
-              <textarea
-                rows={3}
-                required
-                value={newSquadTagline}
-                onChange={(e) => setNewSquadTagline(e.target.value)}
-                placeholder="Describe your target rewilding zone or planting focus..."
-                className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setIsCreateModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" size="sm">
-                Register Squad
-              </Button>
-            </div>
-          </form>
+      {/* Tab Panels */}
+      <div>
+        {currentTab === 'communities' && (
+          <GreenCommunities />
         )}
-      </Modal>
+
+        {currentTab === 'squads' && (
+          <SquadMatcher />
+        )}
+
+        {currentTab === 'challenges' && (
+          <GreenChallenges />
+        )}
+
+        {currentTab === 'events' && (
+          <GreenEvents currentUserId={currentUserId} />
+        )}
+
+        {currentTab === 'feed' && (
+          <CommunityFeed currentUserId={currentUserId} currentUserName={currentUserName} />
+        )}
+
+        {currentTab === 'dashboard' && (
+          <TeamProgressDashboard />
+        )}
+
+        {currentTab === 'green-brain' && (
+          <CommunityGreenBrain currentUserId={currentUserId} currentUserName={currentUserName} />
+        )}
+      </div>
     </div>
   );
 };

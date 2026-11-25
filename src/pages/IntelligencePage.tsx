@@ -1,235 +1,126 @@
-import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/common/Card';
-import { Badge } from '../components/common/Badge';
-import { Button } from '../components/common/Button';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { SmartSiteFinder } from '../components/planting/SmartSiteFinder';
+import { GreenDeficitAnalyzer } from '../components/planting/GreenDeficitAnalyzer';
+import { SpeciesMatchEngine } from '../components/planting/SpeciesMatchEngine';
+import { ClimateSuitabilityChecker } from '../components/planting/ClimateSuitabilityChecker';
+import { PlantingCalendar } from '../components/planting/PlantingCalendar';
+import { PlantSpacingPlanner } from '../components/planting/PlantSpacingPlanner';
+import { BiodiversityPlanner } from '../components/planting/BiodiversityPlanner';
+import { PlantingRiskScanner } from '../components/planting/PlantingRiskScanner';
 import {
   Sparkles,
   Compass,
-  Cpu,
-  Layers,
-  CheckCircle2,
-  AlertCircle,
-  TrendingUp,
-  Droplets,
-  Sun,
-  ShieldCheck,
+  PieChart,
   TreeDeciduous,
-  ArrowRight
+  Thermometer,
+  Calendar,
+  Grid3X3,
+  ShieldAlert,
+  Layers
 } from 'lucide-react';
 
+type TabKey =
+  | 'site-finder'
+  | 'green-deficit'
+  | 'species-match'
+  | 'climate-checker'
+  | 'planting-calendar'
+  | 'spacing-planner'
+  | 'biodiversity'
+  | 'risk-scanner';
+
+interface TabItem {
+  key: TabKey;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tag?: string;
+}
+
+const TABS: TabItem[] = [
+  { key: 'site-finder', label: '1. Site Finder', icon: Compass },
+  { key: 'green-deficit', label: '2. Green Deficit', icon: PieChart },
+  { key: 'species-match', label: '3. Species Match', icon: TreeDeciduous, tag: 'Native AI' },
+  { key: 'climate-checker', label: '4. Climate Checker', icon: Thermometer },
+  { key: 'planting-calendar', label: '5. Calendar', icon: Calendar },
+  { key: 'spacing-planner', label: '6. Spacing Planner', icon: Grid3X3 },
+  { key: 'biodiversity', label: '7. Biodiversity', icon: Sparkles },
+  { key: 'risk-scanner', label: '8. Risk Scanner', icon: ShieldAlert },
+];
+
 export const IntelligencePage: React.FC = () => {
-  const [region, setRegion] = useState('Upper Mississippi Basin');
-  const [soilType, setSoilType] = useState('Loam / Mollisol (pH 6.8)');
-  const [sunlight, setSunlight] = useState('Full Sun (6+ hrs)');
-  const [drainage, setDrainage] = useState('Well Drained');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [hasAnalyzed, setHasAnalyzed] = useState(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = (searchParams.get('tab') as TabKey) || 'site-finder';
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
-  const handleRunAnalysis = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      setIsAnalyzing(false);
-      setHasAnalyzed(true);
-    }, 800);
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab') as TabKey;
+    if (tabFromUrl && TABS.some((t) => t.key === tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (key: TabKey) => {
+    setActiveTab(key);
+    setSearchParams({ tab: key });
   };
-
-  const recommendations = [
-    {
-      species: 'Bur Oak (Quercus macrocarpa)',
-      matchScore: 98,
-      droughtTolerance: 'High',
-      carbonYield: '1.4t CO2e / 30yr',
-      biodiversitySupport: '500+ Lepidoptera species',
-      rationale: 'Exceptional deep taproot anchoring suited for loamy mollisols with maximum drought resilience under warming climate shifts.',
-      badge: 'Best Native Anchor',
-    },
-    {
-      species: 'Hackberry (Celtis occidentalis)',
-      matchScore: 94,
-      droughtTolerance: 'Very High',
-      carbonYield: '1.1t CO2e / 30yr',
-      biodiversitySupport: 'High avian winter forage',
-      rationale: 'Highly adaptive to variable moisture regimes, resilient to urban soil compaction and wind shear.',
-      badge: 'High Adaptability',
-    },
-    {
-      species: 'American Basswood (Tilia americana)',
-      matchScore: 89,
-      droughtTolerance: 'Moderate',
-      carbonYield: '1.3t CO2e / 30yr',
-      biodiversitySupport: 'Critical pollinator nectar source',
-      rationale: 'Deep leaf litter creates nutrient-rich humus layer accelerating microbial soil biodiversity.',
-      badge: 'Pollinator Keystone',
-    },
-  ];
 
   return (
     <div className="space-y-6">
-      {/* Title */}
+      {/* Unified Suite Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-lime-600" />
-            Smart Planting Intelligence Engine
+            Smart Planting Intelligence Suite
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            AI-driven native species recommendations based on bioclimatic projections, soil microbes, and drought resilience.
+            End-to-end ecological planning: site suitability, canopy deficit analysis, native species matching, climate stress tests, spacing geometry, and risk audits.
           </p>
         </div>
-        <Badge variant="lime" dot size="md">
-          Neural Net Biome v3.2 Active
-        </Badge>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Environmental Input Simulator */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <div>
-              <CardTitle>Site Bioclimatic Inputs</CardTitle>
-              <CardDescription>Specify planting plot parameters</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleRunAnalysis} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Target Watershed / Region</label>
-                <select
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value)}
-                  className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-forest-600"
+      {/* 8-Feature Horizontal Navigation Tab Bar */}
+      <div className="bg-white border border-sage-200 rounded-xl p-1.5 shadow-xs flex items-center gap-1 overflow-x-auto">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => handleTabChange(tab.key)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                isActive
+                  ? 'bg-forest-800 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${isActive ? 'text-lime-400' : 'text-slate-400'}`} />
+              <span>{tab.label}</span>
+              {tab.tag && (
+                <span
+                  className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider ${
+                    isActive ? 'bg-lime-400 text-forest-950' : 'bg-forest-100 text-forest-800'
+                  }`}
                 >
-                  <option value="Upper Mississippi Basin">Upper Mississippi Basin (Zone 4b/5a)</option>
-                  <option value="Cascadia Riparian Corridor">Cascadia Riparian Corridor (Zone 8a)</option>
-                  <option value="Biscayne Coastal Biosphere">Biscayne Coastal Biosphere (Zone 10b)</option>
-                  <option value="Appalachian Hardwood Range">Appalachian Hardwood Range (Zone 6a)</option>
-                </select>
-              </div>
+                  {tab.tag}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Soil Texture & Chemistry</label>
-                <select
-                  value={soilType}
-                  onChange={(e) => setSoilType(e.target.value)}
-                  className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-forest-600"
-                >
-                  <option value="Loam / Mollisol (pH 6.8)">Loam / Mollisol (pH 6.8 - Balanced)</option>
-                  <option value="Hydric Clay / Peat (pH 7.4)">Hydric Clay / Peat (High Moisture)</option>
-                  <option value="Sandy Acidic Ultisol (pH 5.4)">Sandy Acidic Ultisol (Low Retentive)</option>
-                  <option value="Compacted Urban Fill (pH 7.8)">Compacted Urban Fill (Disturbed)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Solar Irradiance</label>
-                <select
-                  value={sunlight}
-                  onChange={(e) => setSunlight(e.target.value)}
-                  className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-forest-600"
-                >
-                  <option value="Full Sun (6+ hrs)">Full Sun (6+ hrs Direct Radiation)</option>
-                  <option value="Partial Canopy Shade">Partial Canopy Shade (3-6 hrs)</option>
-                  <option value="Dense Understory Shade">Dense Understory Shade (&lt;3 hrs)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Hydrologic Drainage</label>
-                <select
-                  value={drainage}
-                  onChange={(e) => setDrainage(e.target.value)}
-                  className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-forest-600"
-                >
-                  <option value="Well Drained">Well Drained (Permeable)</option>
-                  <option value="Periodically Flooded">Periodically Flooded (Riparian/Tidal)</option>
-                  <option value="Arid / Rapid Evaporation">Arid / Rapid Evaporation</option>
-                </select>
-              </div>
-
-              <div className="pt-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="md"
-                  className="w-full"
-                  isLoading={isAnalyzing}
-                  icon={<Cpu className="w-4 h-4" />}
-                >
-                  Generate Planting Strategy
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Right 2 Columns: AI Synthesis & Ranked Species */}
-        <div className="lg:col-span-2 space-y-5">
-          {/* AI Bioclimatic Summary Card */}
-          <div className="p-5 rounded-xl bg-forest-deep text-white border border-forest-moss space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-lime-400 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4" />
-                Ecological Model Verdict
-              </span>
-              <span className="text-xs text-forest-300 font-mono">Confidence: 96.8%</span>
-            </div>
-            <h3 className="text-base font-bold text-white">
-              Optimal Planting Window: Early Spring (April 10 – May 2)
-            </h3>
-            <p className="text-xs text-forest-200 leading-relaxed">
-              Based on historical rainfall deficits and 2030 climate warming envelope projections for the <strong className="text-white">{region}</strong>,
-              prioritize deep-rooted oak and hackberry species with mycorrhizal inoculation to ensure greater than 92% 3-year survival rate.
-            </p>
-          </div>
-
-          {/* Ranked Species Cards */}
-          <div className="space-y-4">
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Ranked Native Species Recommendations ({recommendations.length})
-            </div>
-
-            {recommendations.map((rec, i) => (
-              <Card key={rec.species} hoverEffect className="overflow-hidden">
-                <div className="p-5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-full bg-forest-100 text-forest-800 text-xs font-bold flex items-center justify-center">
-                        {i + 1}
-                      </span>
-                      <h4 className="text-sm font-bold text-slate-900">{rec.species}</h4>
-                      <Badge variant="lime" size="sm">{rec.badge}</Badge>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <div className="text-right">
-                        <div className="text-xs font-bold text-forest-700">{rec.matchScore}% Match</div>
-                        <div className="text-[10px] text-slate-400">Biome Fit</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-600 mb-4 leading-relaxed">{rec.rationale}</p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3 border-t border-slate-100 text-xs">
-                    <div className="bg-slate-50 p-2.5 rounded-lg">
-                      <div className="text-[10px] text-slate-400">Drought Resilience</div>
-                      <div className="font-semibold text-slate-800">{rec.droughtTolerance}</div>
-                    </div>
-                    <div className="bg-slate-50 p-2.5 rounded-lg">
-                      <div className="text-[10px] text-slate-400">Est. Carbon Sequestration</div>
-                      <div className="font-semibold text-forest-700">{rec.carbonYield}</div>
-                    </div>
-                    <div className="bg-slate-50 p-2.5 rounded-lg">
-                      <div className="text-[10px] text-slate-400">Biodiversity Anchor</div>
-                      <div className="font-semibold text-slate-800 truncate">{rec.biodiversitySupport}</div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
+      {/* Active Feature Render Component */}
+      <div>
+        {activeTab === 'site-finder' && <SmartSiteFinder />}
+        {activeTab === 'green-deficit' && <GreenDeficitAnalyzer />}
+        {activeTab === 'species-match' && <SpeciesMatchEngine />}
+        {activeTab === 'climate-checker' && <ClimateSuitabilityChecker />}
+        {activeTab === 'planting-calendar' && <PlantingCalendar />}
+        {activeTab === 'spacing-planner' && <PlantSpacingPlanner />}
+        {activeTab === 'biodiversity' && <BiodiversityPlanner />}
+        {activeTab === 'risk-scanner' && <PlantingRiskScanner />}
       </div>
     </div>
   );
