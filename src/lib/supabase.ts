@@ -5,8 +5,8 @@ const envUrl = import.meta.env.VITE_SUPABASE_URL;
 const envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Production project fallback to ensure the app never connects to dummy/placeholder domains
-const DEFAULT_SUPABASE_URL = 'https://tviitmmavipnswffagqm.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_OHi7-ae0S_HWObZy1hZ2xw_7XQsUMjw';
+const DEFAULT_SUPABASE_URL = 'https://unpxmqtwtmrgmbzcwrzt.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_4w6qlLrjmIl_QapKi3hBTA_FP10S5nX';
 
 // Resolve configuration: prefer explicit environment variables; fall back to the project default
 const resolvedUrl = (envUrl && !envUrl.includes('placeholder') && envUrl !== 'https://your-project.supabase.co')

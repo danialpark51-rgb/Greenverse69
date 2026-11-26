@@ -303,31 +303,31 @@ export async function fetchPersonalImpactMetrics(userId: string = 'demo-user'): 
     if (!error && data) return data as PersonalImpactMetrics;
 
     // Cross-batch integration: If personal_impact_metrics table row is not populated yet,
-    // calculate metrics directly from the user's planted trees in the trees table.
+    // calculate metrics directly from the user's planted trees in the canonical trees table.
     if (userId && userId !== 'demo-user') {
       const { data: trees, error: treeErr } = await supabase
         .from('trees')
-        .select('id, health_status, verification_status')
-        .eq('planted_by', userId);
+        .select('id, health_status')
+        .eq('user_id', userId);
 
-      if (!treeErr && trees && trees.length > 0) {
+      if (!treeErr && trees) {
         const total = trees.length;
-        const verified = trees.filter(t => t.verification_status === 'verified').length;
-        const reported = total - verified;
-        const co2 = Number((verified * 21.77).toFixed(1)); // FAO standard broadleaf sequester rate
+        const thrivingCount = trees.filter(t => t.health_status === 'thriving').length;
+        const survivalRate = total > 0 ? Number(((thrivingCount / total) * 100).toFixed(1)) : 100.0;
+        const co2 = Number((total * 21.77).toFixed(1)); // FAO standard broadleaf sequester rate
 
         return {
           user_id: userId,
           trees_planted_total: total,
-          trees_verified: verified,
-          trees_reported: reported,
+          trees_verified: total,
+          trees_reported: 0,
           trees_under_care: total,
-          survival_rate_pct: 95.0,
-          projects_participated: 1,
-          volunteer_hours: 4.0,
+          survival_rate_pct: survivalRate,
+          projects_participated: 0,
+          volunteer_hours: 0,
           bounties_completed: 0,
           challenges_won: 0,
-          events_attended: 1,
+          events_attended: 0,
           protections_logged: 0,
           green_points_earned: total * 50,
           co2_sequestered_kg: co2,
@@ -335,12 +335,34 @@ export async function fetchPersonalImpactMetrics(userId: string = 'demo-user'): 
         };
       }
     }
-  } catch {
-    // fallback
+  } catch (err) {
+    console.warn('[Greenverse Impact] fetchPersonalImpactMetrics error:', err);
   }
 
+  // Truthful empty initial state for authenticated users who have no database records yet
+  if (userId && userId !== 'demo-user') {
+    return {
+      user_id: userId,
+      trees_planted_total: 0,
+      trees_verified: 0,
+      trees_reported: 0,
+      trees_under_care: 0,
+      survival_rate_pct: 100.0,
+      projects_participated: 0,
+      volunteer_hours: 0,
+      bounties_completed: 0,
+      challenges_won: 0,
+      events_attended: 0,
+      protections_logged: 0,
+      green_points_earned: 0,
+      co2_sequestered_kg: 0,
+      last_synced_at: new Date().toISOString()
+    };
+  }
+
+  // Demonstration seed metrics for unauthenticated exploratory browsing
   return {
-    user_id: userId,
+    user_id: 'demo-user',
     trees_planted_total: 9,
     trees_verified: 7,
     trees_reported: 2,

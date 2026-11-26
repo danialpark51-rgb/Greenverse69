@@ -260,9 +260,9 @@ SECURITY DEFINER
 SET search_path = public, auth
 AS $$
 BEGIN
-  IF NEW.planted_by IS NOT NULL THEN
+  IF TG_OP = 'INSERT' AND NEW.user_id IS NOT NULL THEN
     INSERT INTO public.personal_impact_metrics (user_id, trees_planted_total, co2_sequestered_kg, last_synced_at)
-    VALUES (NEW.planted_by, 1, 21.77, NOW())
+    VALUES (NEW.user_id, 1, 21.77, NOW())
     ON CONFLICT (user_id) DO UPDATE SET
       trees_planted_total = personal_impact_metrics.trees_planted_total + 1,
       -- Avg CO2 sequestration: ~21.77 kg/year for a typical broadleaf tree (FAO estimate)

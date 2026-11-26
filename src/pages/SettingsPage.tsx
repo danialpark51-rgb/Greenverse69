@@ -11,23 +11,30 @@ import {
   Key,
   Database,
   CheckCircle2,
+  AlertCircle,
   Save
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
   const { user, profile, updateProfile } = useAuth();
 
-  const [name, setName] = useState(profile?.full_name || user?.user_metadata?.full_name || 'Elena Rostova');
-  const [email, setEmail] = useState(user?.email || 'elena.rostova@canopyguard.org');
-  const [organization, setOrganization] = useState(profile?.organization || 'Pacific Canopy Alliance');
+  const [name, setName] = useState(
+    profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Elena Rostova')
+  );
+  const [email, setEmail] = useState(user?.email || (user ? '' : 'elena.rostova@canopyguard.org'));
+  const [organization, setOrganization] = useState(profile?.organization || (user ? '' : 'Pacific Canopy Alliance'));
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (user) {
       if (user.email) setEmail(user.email);
       const currentName = profile?.full_name || user.user_metadata?.full_name;
       if (currentName) setName(currentName);
-      if (profile?.organization) setOrganization(profile.organization);
+      if (profile?.organization !== undefined && profile?.organization !== null) {
+        setOrganization(profile.organization);
+      }
     }
   }, [user, profile]);
 
@@ -38,14 +45,20 @@ export const SettingsPage: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (user) {
-      await updateProfile({
-        full_name: name,
-        organization,
-      });
+    if (!user) return;
+    setSaving(true);
+    setSaveError(null);
+    const { error } = await updateProfile({
+      full_name: name.trim(),
+      organization: organization.trim(),
+    });
+    setSaving(false);
+    if (error) {
+      setSaveError(error.message || 'Failed to persist profile update to database.');
+    } else {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
     }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
   };
 
   return (
@@ -104,9 +117,11 @@ export const SettingsPage: React.FC = () => {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800"
+                  disabled
+                  readOnly
+                  className="w-full px-3 py-2 border border-sage-200 rounded-lg bg-slate-100 text-slate-500 cursor-not-allowed"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">Managed securely via Supabase Auth</p>
               </div>
 
               <div className="sm:col-span-2">
@@ -199,15 +214,20 @@ export const SettingsPage: React.FC = () => {
         </Card>
 
         {/* Submit */}
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
           {saved && (
             <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1.5 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4" /> Preferences saved successfully!
+              <CheckCircle2 className="w-4 h-4" /> Profile & preferences saved successfully!
+            </span>
+          )}
+          {saveError && (
+            <span className="text-xs text-rose-700 font-semibold flex items-center gap-1.5 animate-in fade-in">
+              <AlertCircle className="w-4 h-4" /> {saveError}
             </span>
           )}
           <div className="ml-auto">
-            <Button type="submit" variant="primary" size="md" icon={<Save className="w-4 h-4" />}>
-              Save Settings
+            <Button type="submit" variant="primary" size="md" disabled={saving} icon={<Save className="w-4 h-4" />}>
+              {saving ? 'Saving...' : 'Save Settings'}
             </Button>
           </div>
         </div>

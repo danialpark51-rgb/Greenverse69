@@ -57,14 +57,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!error && data) {
         setProfile(data as UserProfile);
       } else {
-        // Fallback to user metadata if table has no row or RLS restricts unauthenticated reads
-        setProfile({
+        // Fallback to user metadata and lazily ensure profile row exists in public.profiles
+        const initialProfile: UserProfile = {
           id: userId,
           full_name: userMetadata?.full_name || userEmail?.split('@')[0] || 'Forester',
           email: userEmail,
           avatar_url: userMetadata?.avatar_url || '',
-          role: 'Verified Forester',
-        });
+          organization: userMetadata?.organization || '',
+          role: 'Citizen Forester',
+        };
+
+        // Attempt insertion if row was missing - sanitize to columns allowed for client insert
+        const insertPayload = {
+          id: userId,
+          full_name: initialProfile.full_name,
+          avatar_url: initialProfile.avatar_url,
+          organization: initialProfile.organization,
+        };
+
+        const { data: inserted, error: insertError } = await supabase
+          .from('profiles')
+          .insert([insertPayload])
+          .select()
+          .maybeSingle();
+
+        if (!insertError && inserted && isMountedRef.current) {
+          setProfile(inserted as UserProfile);
+        } else if (isMountedRef.current) {
+          setProfile(initialProfile);
+        }
       }
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -89,22 +110,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const payload = {
-        id: user.id,
-        ...updates,
-        updated_at: new Date().toISOString(),
-      };
+      // Batch 1.1: Security hardening - only send mutable user columns
+      // role, email, id, and timestamps are protected and cannot be modified by client
+      const safePayload: { full_name?: string; avatar_url?: string; organization?: string } = {};
+      if (updates.full_name !== undefined) safePayload.full_name = updates.full_name;
+      if (updates.avatar_url !== undefined) safePayload.avatar_url = updates.avatar_url;
+      if (updates.organization !== undefined) safePayload.organization = updates.organization;
 
       const { data, error } = await supabase
         .from('profiles')
-        .upsert(payload)
+        .update(safePayload)
+        .eq('id', user.id)
         .select()
         .maybeSingle();
 
       if (!error && data && isMountedRef.current) {
         setProfile(data as UserProfile);
       } else if (!error && isMountedRef.current) {
-        setProfile((prev) => ({ ...prev, ...updates }));
+        setProfile((prev) => ({ ...prev, ...safePayload }));
       }
 
       return { data, error };
