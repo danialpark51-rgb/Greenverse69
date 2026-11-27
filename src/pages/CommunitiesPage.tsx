@@ -80,7 +80,7 @@ export const CommunitiesPage: React.FC = () => {
     { id: 'leaderboard', label: 'Leaderboard', icon: Medal, badge: 'Ranked' },
   ];
 
-  const currentUserId = user?.id || 'demo-user-id';
+  const currentUserId = user?.id;
   const currentUserName = profile?.full_name || user?.email?.split('@')[0] || 'Environmental Steward';
 
   return (

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { PlantSpecies, DbWateringLog } from '../../types/planting';
+import { PlantSpecies, DbWateringLog, WeatherDataState } from '../../types/planting';
 import {
   calculateWateringRecommendation,
   getClimateIntelligence,
+  fetchLiveWeather,
   logWateringEvent,
   fetchWateringLogs
 } from '../../services/plantingIntelligenceService';
@@ -31,8 +32,23 @@ export const WateringIntelligenceTracker: React.FC = () => {
   const [logMethod, setLogMethod] = useState<'Hose' | 'Drip Line' | 'Bucket' | 'Rainfall'>('Hose');
   const [isLogging, setIsLogging] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [weather, setWeather] = useState<WeatherDataState>(getClimateIntelligence());
 
-  const weather = getClimateIntelligence();
+  // Attempt to load live weather from Open-Meteo using browser geolocation
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const liveWeather = await fetchLiveWeather(pos.coords.latitude, pos.coords.longitude);
+        setWeather(liveWeather);
+      },
+      () => {
+        // Permission denied or error — keep baseline state, no fabrication
+        setWeather(getClimateIntelligence());
+      },
+      { timeout: 8000 }
+    );
+  }, []);
   const species = SPECIES_CATALOG.find((s) => s.id === selectedSpeciesId) || SPECIES_CATALOG[0];
   const recommendation = calculateWateringRecommendation(species, weather);
 

@@ -23,9 +23,11 @@ import {
   createPost,
   likePost,
   getPostComments,
-  addPostComment
+  addPostComment,
+  deletePostComment
 } from '../../services/communityService';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { ImageUpload } from '../common/ImageUpload';
 
 interface CommunityFeedProps {
   currentUserId?: string;
@@ -33,7 +35,7 @@ interface CommunityFeedProps {
 }
 
 export const CommunityFeed: React.FC<CommunityFeedProps> = ({
-  currentUserId = 'demo-user-id',
+  currentUserId,
   currentUserName = 'Environmental Steward'
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
@@ -86,7 +88,18 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({
           loadPosts();
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'post_comments' },
+        () => {
+          loadPosts();
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[CommunityFeed] Realtime subscription status error:', err);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -134,6 +147,10 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({
 
   const handleAddComment = async (postId: string) => {
     if (!commentInput.trim()) return;
+    if (!currentUserId) {
+      alert('Please sign in to join the discussion and post comments.');
+      return;
+    }
     try {
       const newComment = await addPostComment(
         postId,
@@ -154,9 +171,28 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({
     }
   };
 
+  const handleDeleteComment = async (postId: string, commentId: string) => {
+    try {
+      await deletePostComment(commentId, currentUserId);
+      setCommentsMap((prev: Record<string, PostComment[]>) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).filter(c => c.id !== commentId),
+      }));
+      setPosts((prev: CommunityPost[]) =>
+        prev.map(p => (p.id === postId ? { ...p, comments_count: Math.max(0, p.comments_count - 1) } : p))
+      );
+    } catch (err) {
+      console.error('Failed to delete comment:', err);
+    }
+  };
+
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim()) return;
+    if (!currentUserId) {
+      alert('Please sign in to publish a post to the Greenverse community network.');
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -407,9 +443,20 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({
                             <div className="bg-white p-3 rounded-xl border border-slate-200/80 flex-1 text-xs">
                               <div className="flex items-center justify-between mb-1">
                                 <span className="font-semibold text-slate-900">{c.author_name}</span>
-                                <span className="text-[10px] text-slate-400">
-                                  {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-slate-400">
+                                    {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                  {currentUserId && c.author_id === currentUserId && (
+                                    <button
+                                      onClick={() => handleDeleteComment(post.id, c.id)}
+                                      className="text-[10px] text-slate-400 hover:text-rose-600 transition-colors"
+                                      title="Delete comment"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               <p className="text-slate-700 leading-relaxed">{c.content}</p>
                             </div>
@@ -492,13 +539,15 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Photo / Media URL (Optional)</label>
-                <input
-                  type="url"
+                <ImageUpload
+                  label="Photo / Field Media Attachment (Optional)"
                   value={mediaUrl}
-                  onChange={e => setMediaUrl(e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl"
+                  onChange={url => setMediaUrl(url)}
+                  bucket="community"
+                  userId={currentUserId}
+                  folder="posts"
+                  placeholderText="Click or drop photo to attach to post"
+                  aspectRatio="video"
                 />
               </div>
 

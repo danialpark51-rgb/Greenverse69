@@ -16,7 +16,7 @@ import {
   Share2
 } from 'lucide-react';
 import { GreenEvent, EventRSVP } from '../../types/community';
-import { getEvents, createEvent, rsvpEvent } from '../../services/communityService';
+import { getEvents, createEvent, rsvpEvent, deleteEvent } from '../../services/communityService';
 import { InteractiveMap, MapMarkerItem } from '../map/InteractiveMap';
 
 interface GreenEventsProps {
@@ -168,6 +168,17 @@ export const GreenEvents: React.FC<GreenEventsProps> = ({ currentUserId }) => {
       };
     });
 
+  const handleCancelOrDeleteEvent = async (eventId: string) => {
+    if (!confirm('Are you sure you want to cancel and remove this event?')) return;
+    try {
+      await deleteEvent(eventId, currentUserId);
+      setEvents(prev => prev.filter(e => e.id !== eventId));
+      if (selectedEvent?.id === eventId) setSelectedEvent(null);
+    } catch (err) {
+      console.error('Failed to cancel event:', err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Controls */}
@@ -307,7 +318,18 @@ export const GreenEvents: React.FC<GreenEventsProps> = ({ currentUserId }) => {
             const isGoing = event.user_rsvp_status === 'going';
             const isInterested = event.user_rsvp_status === 'interested';
 
-            return (
+            const handleCancelOrDeleteEvent = async (eventId: string) => {
+    if (!confirm('Are you sure you want to cancel and remove this event?')) return;
+    try {
+      await deleteEvent(eventId, currentUserId);
+      setEvents(prev => prev.filter(e => e.id !== eventId));
+      if (selectedEvent?.id === eventId) setSelectedEvent(null);
+    } catch (err) {
+      console.error('Failed to cancel event:', err);
+    }
+  };
+
+  return (
               <div
                 key={event.id}
                 className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col"
@@ -516,6 +538,14 @@ export const GreenEvents: React.FC<GreenEventsProps> = ({ currentUserId }) => {
                   Status: <strong className="capitalize text-slate-700">{selectedEvent.user_rsvp_status || 'No RSVP'}</strong>
                 </span>
                 <div className="flex items-center gap-2">
+                  {currentUserId && selectedEvent.organizer_id === currentUserId && (
+                    <button
+                      onClick={() => handleCancelOrDeleteEvent(selectedEvent.id)}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200"
+                    >
+                      Cancel Event
+                    </button>
+                  )}
                   <button
                     onClick={() => handleRSVP(selectedEvent.id, 'interested')}
                     className={`px-4 py-2 rounded-xl text-xs font-semibold ${

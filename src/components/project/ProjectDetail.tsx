@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, Coins, MapPin, Calendar, Users, ShieldCheck, TreePine,
-  TrendingUp, BookOpen, Award, AlertCircle, CheckCircle2, Sprout, Heart, X, Send
+  TrendingUp, BookOpen, Award, AlertCircle, CheckCircle2, Sprout, Heart, X, Send,
+  Plus, Edit3
 } from 'lucide-react';
 import { Project, FundingCampaign, ProjectMilestone, ProjectUpdate } from '../../types/project';
 import {
-  fetchProjectCampaign, fetchMilestones, fetchProjectUpdates, createPledge
+  fetchProjectCampaign, fetchMilestones, fetchProjectUpdates, createPledge,
+  createProjectUpdate, completeMilestone, submitProjectForReview
 } from '../../services/projectService';
 import { InteractiveMap } from '../map/InteractiveMap';
 
@@ -40,6 +42,19 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [pledgeSubmitting, setPledgeSubmitting] = useState(false);
   const [pledgeSuccess, setPledgeSuccess] = useState(false);
   const [localProject, setLocalProject] = useState(project);
+
+  // Post update form (owner only)
+  const [showUpdateForm, setShowUpdateForm] = useState(false);
+  const [updateTitle, setUpdateTitle] = useState('');
+  const [updateContent, setUpdateContent] = useState('');
+  const [updateSubmitting, setUpdateSubmitting] = useState(false);
+  const [updateSuccess, setUpdateSuccess] = useState(false);
+
+  // Submit for review (owner only)
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState<string | null>(null);
+
+  const isOwner = localProject.owner_id === currentUserId;
 
   useEffect(() => {
     const load = async () => {
@@ -88,6 +103,52 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       console.error('Pledge failed:', err);
     } finally {
       setPledgeSubmitting(false);
+    }
+  };
+
+  const handlePostUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!updateTitle.trim() || !updateContent.trim()) return;
+    try {
+      setUpdateSubmitting(true);
+      const created = await createProjectUpdate({
+        project_id: project.id,
+        title: updateTitle.trim(),
+        content: updateContent.trim(),
+        update_type: 'general',
+      }, currentUserId, currentUserName);
+      setUpdates(prev => [created, ...prev]);
+      setUpdateTitle('');
+      setUpdateContent('');
+      setUpdateSuccess(true);
+      setTimeout(() => { setUpdateSuccess(false); setShowUpdateForm(false); }, 2000);
+    } catch (err) {
+      console.error('Update post failed:', err);
+    } finally {
+      setUpdateSubmitting(false);
+    }
+  };
+
+  const handleSubmitForReview = async () => {
+    if (!currentUserId) return;
+    setReviewSubmitting(true);
+    setReviewMessage(null);
+    const result = await submitProjectForReview(project.id);
+    if (result.success) {
+      setLocalProject(prev => ({ ...prev, verification_status: 'submitted_for_review' }));
+      setReviewMessage('✓ Project submitted for review.');
+    } else {
+      setReviewMessage(`Error: ${result.error}`);
+    }
+    setReviewSubmitting(false);
+  };
+
+  const handleCompleteMilestone = async (milestoneId: string) => {
+    const result = await completeMilestone(milestoneId);
+    if (result.success) {
+      setMilestones(prev => prev.map(m =>
+        m.id === milestoneId ? { ...m, status: 'completed', current_progress_percentage: 100, completion_date: new Date().toISOString() } : m
+      ));
     }
   };
 
@@ -396,12 +457,22 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                       }`}>
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="text-xs font-bold text-slate-900">{m.title}</h4>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            m.status === 'completed' ? 'bg-emerald-600 text-white' :
-                            m.status === 'in_progress' ? 'bg-blue-600 text-white' :
-                            m.status === 'overdue' ? 'bg-red-600 text-white' :
-                            'bg-slate-300 text-slate-700'
-                          }`}>{m.status.replace('_', ' ')}</span>
+                          <div className="flex items-center gap-2">
+                            {isOwner && m.status !== 'completed' && (
+                              <button
+                                onClick={() => handleCompleteMilestone(m.id)}
+                                className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[10px] font-bold hover:bg-emerald-700 transition-colors"
+                              >
+                                Mark Complete
+                              </button>
+                            )}
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              m.status === 'completed' ? 'bg-emerald-600 text-white' :
+                              m.status === 'in_progress' ? 'bg-blue-600 text-white' :
+                              m.status === 'overdue' ? 'bg-red-600 text-white' :
+                              'bg-slate-300 text-slate-700'
+                            }`}>{m.status.replace('_', ' ')}</span>
+                          </div>
                         </div>
                         <div className="w-full bg-white rounded-full h-2 mb-2">
                           <div className={`h-full rounded-full ${m.status === 'completed' ? 'bg-emerald-600' : 'bg-blue-500'}`}
@@ -414,13 +485,61 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                         {m.responsible_member_name && (
                           <div className="text-[11px] text-slate-500 mt-1">Lead: {m.responsible_member_name}</div>
                         )}
+                        {m.evidence_url && m.status === 'completed' && (
+                          <a href={m.evidence_url} target="_blank" rel="noopener noreferrer"
+                            className="text-[11px] text-emerald-700 underline mt-1 inline-block">View Evidence</a>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
               <div>
-                <h3 className="text-sm font-bold text-slate-900 mb-3">Project Updates</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-slate-900">Project Updates</h3>
+                  {isOwner && (
+                    <button onClick={() => setShowUpdateForm(!showUpdateForm)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition-colors">
+                      <Plus className="w-3 h-3" /> Post Update
+                    </button>
+                  )}
+                </div>
+
+                {/* Owner: Post update form */}
+                {isOwner && showUpdateForm && (
+                  <form onSubmit={handlePostUpdate} className="mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <input type="text" required value={updateTitle} onChange={e => setUpdateTitle(e.target.value)}
+                      placeholder="Update title..." className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl" />
+                    <textarea required value={updateContent} onChange={e => setUpdateContent(e.target.value)}
+                      rows={3} placeholder="Describe the update..." className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl resize-none" />
+                    <div className="flex gap-2">
+                      <button type="submit" disabled={updateSubmitting}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold disabled:opacity-60">
+                        <Send className="w-3 h-3" /> {updateSubmitting ? 'Posting…' : 'Post Update'}
+                      </button>
+                      <button type="button" onClick={() => setShowUpdateForm(false)}
+                        className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold">
+                        Cancel
+                      </button>
+                      {updateSuccess && <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Posted!</span>}
+                    </div>
+                  </form>
+                )}
+
+                {/* Owner: Submit for review panel */}
+                {isOwner && (localProject.verification_status === 'unverified' || localProject.verification_status === 'flagged') && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-2xl">
+                    <p className="text-xs text-amber-900 mb-2">Your project is <strong>{localProject.verification_status}</strong>. Submit it for community verification to build trust.</p>
+                    <div className="flex items-center gap-3">
+                      <button onClick={handleSubmitForReview} disabled={reviewSubmitting}
+                        className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 disabled:opacity-60 transition-colors">
+                        {reviewSubmitting ? 'Submitting…' : 'Submit for Review'}
+                      </button>
+                      {reviewMessage && <span className="text-xs text-amber-900">{reviewMessage}</span>}
+                    </div>
+                  </div>
+                )}
+
                 {updates.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No updates posted yet.</p>
                 ) : (

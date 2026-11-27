@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  METRIC_STATS,
-  MOCK_MISSIONS,
-  MOCK_COMMUNITY_ACTIVITIES,
-  MOCK_SITES
-} from '../data/mockData';
+import { useDashboardData } from '../hooks/useDashboardData';
+import { useAuth } from '../context/AuthContext';
 import { StatCard } from '../components/common/StatCard';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { Modal } from '../components/common/Modal';
+import {
+  MOCK_MISSIONS,
+  MOCK_SITES,
+} from '../data/mockData';
 import {
   TreeDeciduous,
   MapPin,
@@ -18,19 +18,24 @@ import {
   Users,
   ArrowRight,
   Sparkles,
-  ShieldCheck,
   TrendingUp,
   Droplets,
-  Satellite,
-  Compass,
   CheckCircle2,
   Calendar,
-  Layers,
-  Award
+  Award,
+  Loader2,
+  Wallet,
+  Bell,
+  AlertCircle,
+  Briefcase,
+  Sprout,
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user, profile } = useAuth();
+  const { metrics, recentActivity, recentNotifications, loading, error, refresh } = useDashboardData();
+
   const [selectedBiome, setSelectedBiome] = useState<string>('all');
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [activeMissionTitle, setActiveMissionTitle] = useState('');
@@ -53,6 +58,17 @@ export const DashboardPage: React.FC = () => {
     }, 1200);
   };
 
+  // Derive display name from real auth data
+  const displayName =
+    profile?.full_name ||
+    user?.user_metadata?.full_name ||
+    (user?.email ? user.email.split('@')[0] : null) ||
+    'Forester';
+
+  // Format numbers with locale separators
+  const fmt = (n: number | null) =>
+    n === null ? '—' : n.toLocaleString();
+
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-300">
       {/* 1. Personalized Welcome & Environmental Hero Banner */}
@@ -63,14 +79,16 @@ export const DashboardPage: React.FC = () => {
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-forest-600/40 border border-forest-400/30 text-lime-300 text-xs font-semibold uppercase tracking-wider">
               <Sparkles className="w-3.5 h-3.5" />
-              Planetary Tree Intelligence — Demo Preview
+              Planetary Tree Intelligence
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-              Welcome back, Elena
+              Welcome back, {displayName}
             </h1>
             <p className="text-forest-200 text-xs sm:text-sm leading-relaxed">
-              Your registered canopy sequestered an estimated <strong className="text-white font-semibold">142.6 tons of CO₂e</strong> (demo estimate).
-              Illustrative Sentinel-2 multispectral telemetry based on USDA i-Tree carbon models.
+              Your Greenverse dashboard — live metrics from your connected Supabase backend.
+              {!user && (
+                <span className="text-lime-300 font-medium"> Sign in to unlock your personal metrics.</span>
+              )}
             </p>
           </div>
 
@@ -87,7 +105,7 @@ export const DashboardPage: React.FC = () => {
               variant="outline"
               size="md"
               className="bg-white/10 text-white border-forest-400/40 hover:bg-white/20"
-              icon={<Compass className="w-4 h-4" />}
+              icon={<MapPin className="w-4 h-4" />}
               onClick={() => navigate('/map')}
             >
               Explore Map
@@ -95,59 +113,116 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Mini telemetry pills */}
+        {/* Live telemetry pills */}
         <div className="mt-6 pt-5 border-t border-forest-moss/60 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
           <div>
-            <div className="text-forest-300 text-[11px]">Canopy Survival Rate</div>
+            <div className="text-forest-300 text-[11px]">Trees Registered</div>
             <div className="text-lg font-bold text-white flex items-center gap-1.5 mt-0.5">
-              94.2%
-              <span className="text-[10px] text-lime-400 font-normal">↑ 1.8%</span>
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-forest-300" />
+              ) : (
+                <>
+                  {fmt(metrics.treesRegistered)}
+                  <span className="text-[10px] text-lime-400 font-normal">live</span>
+                </>
+              )}
             </div>
           </div>
           <div>
-            <div className="text-forest-300 text-[11px]">Soil Moisture Index</div>
+            <div className="text-forest-300 text-[11px]">Active Projects</div>
             <div className="text-lg font-bold text-white flex items-center gap-1.5 mt-0.5">
-              68.4%
-              <span className="text-[10px] text-forest-300 font-normal">Optimal</span>
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-forest-300" />
+              ) : (
+                <>
+                  {fmt(metrics.activeProjects)}
+                  <span className="text-[10px] text-forest-300 font-normal">running</span>
+                </>
+              )}
             </div>
           </div>
           <div>
-            <div className="text-forest-300 text-[11px]">Active Eco-Squads</div>
+            <div className="text-forest-300 text-[11px]">Open Opportunities</div>
             <div className="text-lg font-bold text-white flex items-center gap-1.5 mt-0.5">
-              42 Squads
-              <span className="text-[10px] text-lime-400 font-normal">Global</span>
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-forest-300" />
+              ) : (
+                <>
+                  {fmt(metrics.openOpportunities)}
+                  <span className="text-[10px] text-lime-400 font-normal">open</span>
+                </>
+              )}
             </div>
           </div>
           <div>
             <div className="text-forest-300 text-[11px]">$VERD Balance</div>
             <div className="text-lg font-bold text-lime-400 flex items-center gap-1.5 mt-0.5">
-              1,840 VERD
-              <span className="text-[10px] text-forest-300 font-normal">≈ $920</span>
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-forest-300" />
+              ) : user ? (
+                <>
+                  {fmt(metrics.walletBalance)} pts
+                  <span className="text-[10px] text-forest-300 font-normal">VERD</span>
+                </>
+              ) : (
+                <span className="text-forest-400 text-sm font-normal">Sign in</span>
+              )}
             </div>
           </div>
         </div>
       </div>
 
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+          <button onClick={refresh} className="ml-auto font-semibold underline">Retry</button>
+        </div>
+      )}
+
       {/* 2. Key Metrics Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        {METRIC_STATS.map((metric) => (
-          <StatCard
-            key={metric.id}
-            title={metric.title}
-            value={metric.value}
-            change={metric.change}
-            isPositive={metric.isPositive}
-            timeframe={metric.timeframe}
-            iconName={metric.icon}
-            accent={metric.accent}
-            onClick={() => {
-              if (metric.id === 'm1') navigate('/passport');
-              if (metric.id === 'm2') navigate('/impact');
-              if (metric.id === 'm3') navigate('/projects');
-              if (metric.id === 'm4') navigate('/opportunities');
-            }}
-          />
-        ))}
+        <StatCard
+          title="Trees Registered"
+          value={loading ? '…' : fmt(metrics.treesRegistered)}
+          change={metrics.treesRegistered !== null ? 'Live from database' : 'No data yet'}
+          isPositive={true}
+          timeframe="all time"
+          iconName="Trees"
+          accent="forest"
+          onClick={() => navigate('/passport')}
+        />
+        <StatCard
+          title="Active Projects"
+          value={loading ? '…' : fmt(metrics.activeProjects)}
+          change={metrics.activeProjects !== null ? 'Live from database' : 'No projects yet'}
+          isPositive={true}
+          timeframe="currently running"
+          iconName="Sprout"
+          accent="sage"
+          onClick={() => navigate('/projects')}
+        />
+        <StatCard
+          title="Open Opportunities"
+          value={loading ? '…' : fmt(metrics.openOpportunities)}
+          change={metrics.openOpportunities !== null ? 'Live from database' : 'No data yet'}
+          isPositive={true}
+          timeframe="accepting applications"
+          iconName="Briefcase"
+          accent="lime"
+          onClick={() => navigate('/opportunities')}
+        />
+        <StatCard
+          title="$VERD Points"
+          value={loading ? '…' : user ? fmt(metrics.walletBalance) : 'Sign in'}
+          change={user ? (metrics.walletBalance !== null ? 'Your wallet' : 'Initializing…') : 'Required'}
+          isPositive={true}
+          timeframe="green reward points"
+          iconName="Wallet"
+          accent="emerald"
+          onClick={() => navigate('/wallet')}
+        />
       </div>
 
       {/* 3. Quick Action Hub */}
@@ -213,7 +288,7 @@ export const DashboardPage: React.FC = () => {
         </button>
       </div>
 
-      {/* 4. Green Map Preview & Canopy Progress Row */}
+      {/* 4. Recent Notifications Preview (live) + Map Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Interactive Green Map Preview */}
         <Card className="lg:col-span-2 overflow-hidden flex flex-col">
@@ -241,10 +316,8 @@ export const DashboardPage: React.FC = () => {
 
           {/* Interactive Map Canvas Simulator */}
           <div className="relative bg-gradient-to-b from-[#e8f0e6] to-[#d8e5d6] p-6 h-72 sm:h-80 flex flex-col justify-between overflow-hidden border-b border-sage-200">
-            {/* Simulated Geospatial Grid Lines */}
             <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(to_right,#557257_1px,transparent_1px),linear-gradient(to_bottom,#557257_1px,transparent_1px)] [background-size:40px_40px]" />
 
-            {/* Top filter pills on map */}
             <div className="relative z-10 flex flex-wrap gap-2">
               {['all', 'urban', 'mangrove', 'riparian', 'agroforestry'].map((biome) => (
                 <button
@@ -261,9 +334,8 @@ export const DashboardPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Simulated Geo Pinpoints on SVG Canvas */}
             <div className="relative z-10 flex items-center justify-around h-full my-auto">
-              {filteredSites.map((site, idx) => (
+              {filteredSites.map((site) => (
                 <div
                   key={site.id}
                   onClick={() => navigate('/map')}
@@ -283,7 +355,6 @@ export const DashboardPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Bottom Map Legend */}
             <div className="relative z-10 flex items-center justify-between text-[11px] bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-sage-200 text-slate-600">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
@@ -295,7 +366,6 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Map Footer Sites Quick List */}
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white">
             {filteredSites.slice(0, 2).map((site) => (
               <div
@@ -318,73 +388,82 @@ export const DashboardPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Right 1 Col: Species Distribution & Growth Chart */}
+        {/* Right: Notifications Preview (live) */}
         <Card className="flex flex-col">
           <CardHeader>
             <div>
-              <CardTitle>Canopy Species Mix</CardTitle>
-              <CardDescription>Biodiversity distribution across plots</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="w-4 h-4 text-forest-700" />
+                Recent Notifications
+              </CardTitle>
+              <CardDescription>Your latest alerts and updates</CardDescription>
             </div>
-            <Badge variant="lime" size="sm">High Diversity</Badge>
+            {metrics.pendingNotifications !== null && metrics.pendingNotifications > 0 && (
+              <Badge variant="emerald" size="sm">
+                {metrics.pendingNotifications} unread
+              </Badge>
+            )}
           </CardHeader>
 
-          <CardContent className="space-y-4 flex-1">
-            {/* Visual Bar Progression */}
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="font-medium text-slate-700">Bur Oak (Quercus macrocarpa)</span>
-                  <span className="font-semibold text-slate-900">38%</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div className="bg-forest-700 h-full rounded-full" style={{ width: '38%' }} />
-                </div>
+          <CardContent className="flex-1 p-0 divide-y divide-slate-100">
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-forest-600 mr-2" />
+                <span className="text-xs text-slate-500">Loading…</span>
               </div>
-
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="font-medium text-slate-700">Western Red Cedar (Thuja plicata)</span>
-                  <span className="font-semibold text-slate-900">26%</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div className="bg-forest-500 h-full rounded-full" style={{ width: '26%' }} />
-                </div>
+            ) : !user ? (
+              <div className="p-5 text-center text-xs text-slate-500">
+                <Bell className="w-7 h-7 mx-auto text-slate-300 mb-2" />
+                <p className="font-medium text-slate-700">Sign in to view notifications</p>
+                <button
+                  onClick={() => navigate('/login')}
+                  className="mt-2 text-forest-700 font-semibold underline"
+                >
+                  Sign In
+                </button>
               </div>
-
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="font-medium text-slate-700">Red Mangrove (Rhizophora mangle)</span>
-                  <span className="font-semibold text-slate-900">21%</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: '21%' }} />
-                </div>
+            ) : recentNotifications.length === 0 ? (
+              <div className="p-5 text-center text-xs text-slate-500">
+                <CheckCircle2 className="w-7 h-7 mx-auto text-emerald-300 mb-2" />
+                <p className="font-medium text-slate-600">All caught up!</p>
+                <p>No notifications yet.</p>
               </div>
-
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="font-medium text-slate-700">American Chestnut Hybrids</span>
-                  <span className="font-semibold text-slate-900">15%</span>
+            ) : (
+              recentNotifications.map((n) => (
+                <div
+                  key={n.id}
+                  className={`p-3.5 flex gap-3 ${!n.is_read ? 'bg-forest-50/40' : ''}`}
+                >
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                      n.type === 'alert'
+                        ? 'bg-amber-100 text-amber-700'
+                        : n.type === 'wallet'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-forest-100 text-forest-700'
+                    }`}
+                  >
+                    {n.type === 'wallet' ? (
+                      <Wallet className="w-3.5 h-3.5" />
+                    ) : n.type === 'alert' ? (
+                      <AlertCircle className="w-3.5 h-3.5" />
+                    ) : (
+                      <Bell className="w-3.5 h-3.5" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-slate-800 truncate">{n.title}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{n.message}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {new Date(n.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  {!n.is_read && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-1.5" />
+                  )}
                 </div>
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div className="bg-lime-500 h-full rounded-full" style={{ width: '15%' }} />
-                </div>
-              </div>
-            </div>
-
-            {/* Carbon Yield Highlight Box */}
-            <div className="p-3.5 rounded-xl bg-forest-50 border border-forest-100 text-xs space-y-2">
-              <div className="flex items-center justify-between text-forest-900 font-semibold">
-                <span className="flex items-center gap-1.5">
-                  <Award className="w-4 h-4 text-forest-700" />
-                  MRV Satellite Audit Status
-                </span>
-                <span className="text-[10px] text-emerald-700 font-mono">VCS Verra Tier-1</span>
-              </div>
-              <p className="text-slate-600 text-[11px] leading-relaxed">
-                Multispectral vegetative index (NDVI) confirms canopy photosynthetic density increased by <strong className="text-forest-800">14.8%</strong> year-over-year.
-              </p>
-            </div>
+              ))
+            )}
           </CardContent>
 
           <CardFooter>
@@ -392,17 +471,18 @@ export const DashboardPage: React.FC = () => {
               variant="outline"
               size="sm"
               className="w-full text-xs"
-              onClick={() => navigate('/intelligence')}
+              onClick={() => navigate('/wallet')}
             >
-              Run AI Planting Intelligence
+              <Wallet className="w-3.5 h-3.5 mr-1" />
+              View Rewards Wallet
             </Button>
           </CardFooter>
         </Card>
       </div>
 
-      {/* 5. Bottom Row: Upcoming Green Missions & Recent Community Activity */}
+      {/* 5. Bottom Row: Upcoming Green Missions & Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Upcoming Green Missions */}
+        {/* Left: Upcoming Green Missions (from mock data — no Supabase table for missions yet) */}
         <Card>
           <CardHeader>
             <div>
@@ -448,7 +528,6 @@ export const DashboardPage: React.FC = () => {
                       </span>
                     </div>
                   </div>
-
                   <Button
                     variant="secondary"
                     size="sm"
@@ -459,7 +538,6 @@ export const DashboardPage: React.FC = () => {
                   </Button>
                 </div>
 
-                {/* Progress bar */}
                 <div className="mt-3">
                   <div className="flex justify-between text-[10px] text-slate-500 mb-1">
                     <span>Target: {mission.targetTrees} trees</span>
@@ -477,49 +555,63 @@ export const DashboardPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Right: Recent Community Activity Feed */}
+        {/* Right: Live activity from community posts (or empty state) */}
         <Card>
           <CardHeader>
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-forest-700" />
-                Recent Community & Squad Action
+                Recent Community Activity
               </CardTitle>
-              <CardDescription>Live telemetry, passport mints, and squad contributions</CardDescription>
+              <CardDescription>Latest posts & contributions from the network</CardDescription>
             </div>
-            <Badge variant="emerald" size="sm" dot>Live Sync</Badge>
+            {!loading && recentActivity.length > 0 && (
+              <Badge variant="emerald" size="sm" dot>Live</Badge>
+            )}
           </CardHeader>
 
           <CardContent className="divide-y divide-slate-100 p-0">
-            {MOCK_COMMUNITY_ACTIVITIES.map((act) => (
-              <div key={act.id} className="p-4 hover:bg-slate-50/60 transition-colors flex items-start gap-3">
-                <img
-                  src={act.user.avatar}
-                  alt={act.user.name}
-                  className="w-9 h-9 rounded-full object-cover shrink-0 ring-1 ring-sage-200 mt-0.5"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-xs font-semibold text-slate-900 truncate">
-                      {act.user.name}
-                    </span>
-                    <span className="text-[10px] text-slate-400 shrink-0">{act.timestamp}</span>
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-medium">{act.user.role}</div>
-                  <p className="text-xs text-slate-700 mt-1">
-                    {act.action} <span className="font-semibold text-forest-800">{act.target}</span>
-                  </p>
-                  {act.badge && (
-                    <div className="mt-1.5">
-                      <Badge variant="forest" size="sm">
-                        {act.badge}
-                      </Badge>
-                    </div>
-                  )}
-                </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-forest-600 mr-2" />
+                <span className="text-xs text-slate-500">Loading activity…</span>
               </div>
-            ))}
+            ) : recentActivity.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                <Users className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                <p className="font-medium text-slate-700">No community activity yet</p>
+                <p>Be the first to post in the community!</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3 text-xs"
+                  onClick={() => navigate('/communities')}
+                >
+                  Explore Communities
+                </Button>
+              </div>
+            ) : (
+              recentActivity.map((act) => (
+                <div key={act.id} className="p-4 hover:bg-slate-50/60 transition-colors flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-forest-100 text-forest-700 flex items-center justify-center shrink-0 mt-0.5">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs font-semibold text-slate-900 truncate">
+                        {act.title}
+                      </span>
+                      <span className="text-[10px] text-slate-400 shrink-0">
+                        {new Date(act.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-700 mt-1 line-clamp-2">{act.description}</p>
+                  </div>
+                </div>
+              ))
+            )}
           </CardContent>
+
           <CardFooter>
             <Button
               variant="outline"
@@ -546,7 +638,7 @@ export const DashboardPage: React.FC = () => {
               <CheckCircle2 className="w-5 h-5" />
             </div>
             <h4 className="text-sm font-semibold text-slate-900">You're Enrolled in this Mission!</h4>
-            <p className="text-xs text-slate-500">Field briefing coordinates and equipment checklist sent to your notification center.</p>
+            <p className="text-xs text-slate-500">Field briefing coordinates sent to your notification center.</p>
           </div>
         ) : (
           <div className="space-y-4 text-xs">

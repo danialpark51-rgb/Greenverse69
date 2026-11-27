@@ -51,6 +51,7 @@ export const TreeCarePage: React.FC = () => {
     description: '',
   });
   const [taskSubmitting, setTaskSubmitting] = useState(false);
+  const [taskError, setTaskError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoadingTasks(true);
@@ -77,23 +78,33 @@ export const TreeCarePage: React.FC = () => {
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!taskForm.title.trim()) return;
+    if (!taskForm.title.trim()) {
+      setTaskError('Task title is required.');
+      return;
+    }
 
     setTaskSubmitting(true);
-    const res = await createCareTask(taskForm, user?.id);
-    setTaskSubmitting(false);
-
-    if (res.data) {
-      setTasks((prev) => [res.data!, ...prev]);
-      setIsTaskModalOpen(false);
-      setTaskForm({
-        title: '',
-        task_type: 'Watering',
-        due_date: new Date().toISOString().split('T')[0],
-        priority: 'medium',
-        tree_id: '',
-        description: '',
-      });
+    setTaskError(null);
+    try {
+      const res = await createCareTask(taskForm, user?.id);
+      if (res.error) {
+        setTaskError(res.error.message);
+      } else if (res.data) {
+        setTasks((prev) => [res.data!, ...prev]);
+        setIsTaskModalOpen(false);
+        setTaskForm({
+          title: '',
+          task_type: 'Watering',
+          due_date: new Date().toISOString().split('T')[0],
+          priority: 'medium',
+          tree_id: '',
+          description: '',
+        });
+      }
+    } catch (err: any) {
+      setTaskError(err?.message || 'Failed to create care task. Please try again.');
+    } finally {
+      setTaskSubmitting(false);
     }
   };
 
@@ -432,6 +443,12 @@ export const TreeCarePage: React.FC = () => {
         description="Schedule a maintenance, hydration, or inspection task for tree health."
       >
         <form onSubmit={handleCreateTask} className="space-y-3 text-xs">
+          {taskError && (
+            <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{taskError}</span>
+            </div>
+          )}
           <div>
             <label className="block text-slate-700 font-medium mb-1">Task Title <span className="text-rose-500">*</span></label>
             <input

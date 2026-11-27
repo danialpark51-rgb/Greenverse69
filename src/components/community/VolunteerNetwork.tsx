@@ -19,7 +19,9 @@ import {
   registerForOpportunity,
   cancelVolunteerRegistration,
   fetchMyVolunteerRegistrations,
-} from '../../services/communityService';import type { DbVolunteerOpportunity } from '../../types/community';
+} from '../../services/communityService';
+import type { DbVolunteerOpportunity } from '../../types/community';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 // ─── Badge variants matching design system ────────────────────────────────────
 const STATUS_STYLES: Record<string, string> = {
@@ -47,8 +49,8 @@ function CapacityBar({ current, max }: { current: number; max: number }) {
 
 interface OpportunityCardProps {
   opp: DbVolunteerOpportunity;
-  userId: string;
-  userName: string;
+  userId?: string;
+  userName?: string;
   registeredIds: Set<string>;
   onRegistered: (id: string) => void;
   onCancelled: (id: string) => void;
@@ -66,7 +68,7 @@ function OpportunityCard({ opp, userId, userName, registeredIds, onRegistered, o
     }
     setLoading(true);
     setMsg(null);
-    const { success, error } = await registerForOpportunity(opp.id, userId, userName);
+    const { success, error } = await registerForOpportunity(opp.id, userId, userName || 'Environmental Steward');
     setLoading(false);
     if (success) {
       onRegistered(opp.id);
@@ -77,6 +79,10 @@ function OpportunityCard({ opp, userId, userName, registeredIds, onRegistered, o
   };
 
   const handleCancel = async () => {
+    if (!userId) {
+      setMsg({ type: 'error', text: 'You must be signed in.' });
+      return;
+    }
     setLoading(true);
     setMsg(null);
     const { success, error } = await cancelVolunteerRegistration(opp.id, userId);
@@ -174,8 +180,8 @@ function OpportunityCard({ opp, userId, userName, registeredIds, onRegistered, o
 
 // ─── Create Opportunity Form ──────────────────────────────────────────────────
 interface CreateFormProps {
-  userId: string;
-  userName: string;
+  userId?: string;
+  userName?: string;
   onCreated: (opp: DbVolunteerOpportunity) => void;
   onClose: () => void;
 }
@@ -200,6 +206,10 @@ function CreateOpportunityForm({ userId, userName, onCreated, onClose }: CreateF
       setErr('Please fill in all required fields.');
       return;
     }
+    if (!userId) {
+      setErr('You must be signed in to create a volunteer opportunity.');
+      return;
+    }
     setSubmitting(true);
     setErr(null);
     const skills = form.skills_needed.split(',').map(s => s.trim()).filter(Boolean);
@@ -207,7 +217,7 @@ function CreateOpportunityForm({ userId, userName, onCreated, onClose }: CreateF
       {
         community_id: null,
         organizer_id: userId,
-        organizer_name: form.organizer_name || userName,
+        organizer_name: form.organizer_name || userName || 'Environmental Steward',
         title: form.title,
         description: form.description,
         location_name: form.location_name,
@@ -348,11 +358,11 @@ function CreateOpportunityForm({ userId, userName, onCreated, onClose }: CreateF
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 interface VolunteerNetworkProps {
-  userId: string;
-  userName: string;
+  userId?: string;
+  userName?: string;
 }
 
-export const VolunteerNetwork: React.FC<VolunteerNetworkProps> = ({ userId, userName }) => {
+export const VolunteerNetwork: React.FC<VolunteerNetworkProps> = ({ userId, userName = 'Environmental Steward' }) => {
   const [opportunities, setOpportunities] = useState<DbVolunteerOpportunity[]>([]);
   const [registeredIds, setRegisteredIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -374,7 +384,36 @@ export const VolunteerNetwork: React.FC<VolunteerNetworkProps> = ({ userId, user
     }
   }, [userId, statusFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+
+    if (!isSupabaseConfigured) return;
+    const channel = supabase
+      .channel('volunteer-network-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'volunteer_opportunities' },
+        () => {
+          load();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'volunteer_registrations' },
+        () => {
+          load();
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[VolunteerNetwork] Realtime subscription status error:', err);
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [load]);
 
   const handleRegistered = (id: string) => {
     setRegisteredIds(prev => new Set([...prev, id]));

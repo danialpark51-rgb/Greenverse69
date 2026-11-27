@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { useAuth } from '../context/AuthContext';
+import { uploadAvatar } from '../services/storageService';
 import {
   Settings,
   User,
@@ -12,17 +13,25 @@ import {
   Database,
   CheckCircle2,
   AlertCircle,
-  Save
+  Save,
+  Loader2
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
   const { user, profile, updateProfile } = useAuth();
 
   const [name, setName] = useState(
-    profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Elena Rostova')
+    profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : '')
   );
-  const [email, setEmail] = useState(user?.email || (user ? '' : 'elena.rostova@canopyguard.org'));
-  const [organization, setOrganization] = useState(profile?.organization || (user ? '' : 'Pacific Canopy Alliance'));
+  const [email, setEmail] = useState(user?.email || '');
+  const [organization, setOrganization] = useState(profile?.organization || '');
+  const [avatarUrl, setAvatarUrl] = useState(
+    profile?.avatar_url || (user?.id ? `https://api.dicebear.com/7.x/bottts/svg?seed=${user.id}` : '')
+  );
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -35,8 +44,27 @@ export const SettingsPage: React.FC = () => {
       if (profile?.organization !== undefined && profile?.organization !== null) {
         setOrganization(profile.organization);
       }
+      if (profile?.avatar_url) {
+        setAvatarUrl(profile.avatar_url);
+      }
     }
   }, [user, profile]);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user?.id) return;
+    setAvatarUploading(true);
+    setAvatarError(null);
+    try {
+      const newUrl = await uploadAvatar(file, user.id);
+      setAvatarUrl(newUrl);
+      await updateProfile({ avatar_url: newUrl });
+    } catch (err: any) {
+      setAvatarError(err.message || 'Failed to upload profile photo.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
 
   // Preference switches
   const [telemetryAlerts, setTelemetryAlerts] = useState(true);
@@ -51,6 +79,7 @@ export const SettingsPage: React.FC = () => {
     const { error } = await updateProfile({
       full_name: name.trim(),
       organization: organization.trim(),
+      avatar_url: avatarUrl.trim() || undefined,
     });
     setSaving(false);
     if (error) {
@@ -84,20 +113,46 @@ export const SettingsPage: React.FC = () => {
               <CardTitle>Arborist Profile & Credentials</CardTitle>
               <CardDescription>Your identity displayed on digital tree passports and audits</CardDescription>
             </div>
-            <Badge variant="emerald">Level 8 Forester</Badge>
+            <Badge variant="emerald">{(profile as any)?.role || 'Citizen Forester'}</Badge>
           </CardHeader>
           <CardContent className="space-y-4 text-xs">
             <div className="flex items-center gap-4">
-              <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"
-                alt="Profile"
-                className="w-16 h-16 rounded-full object-cover ring-2 ring-forest-600"
-              />
+              <div className="relative w-16 h-16 rounded-full overflow-hidden ring-2 ring-forest-600 bg-slate-100 flex items-center justify-center shrink-0">
+                {avatarUploading ? (
+                  <Loader2 className="w-6 h-6 animate-spin text-forest-700" />
+                ) : (
+                  <img
+                    src={avatarUrl}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src =
+                        user?.id
+                          ? `https://api.dicebear.com/7.x/bottts/svg?seed=${user.id}`
+                          : 'https://api.dicebear.com/7.x/bottts/svg?seed=default';
+                    }}
+                  />
+                )}
+              </div>
               <div>
-                <Button type="button" variant="outline" size="sm">
-                  Change Photo
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={handleAvatarChange}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={avatarUploading || !user}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {avatarUploading ? 'Uploading...' : 'Change Photo'}
                 </Button>
-                <div className="text-[10px] text-slate-400 mt-1">JPG or PNG under 2MB</div>
+                <div className="text-[10px] text-slate-400 mt-1">JPG, PNG, or WEBP under 2MB</div>
+                {avatarError && <div className="text-[10px] text-rose-600 mt-0.5">{avatarError}</div>}
               </div>
             </div>
 

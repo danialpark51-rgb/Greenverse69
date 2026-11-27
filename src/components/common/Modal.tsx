@@ -55,6 +55,9 @@ export const Modal: React.FC<ModalProps> = ({
 
       {/* Dialog */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
         className={cn(
           'relative w-full bg-white rounded-2xl shadow-soft-lg border border-sage-200 overflow-hidden transform transition-all z-10',
           maxWidthClasses[maxWidth]
@@ -62,13 +65,14 @@ export const Modal: React.FC<ModalProps> = ({
       >
         <div className="px-6 py-5 border-b border-sage-100 flex items-center justify-between bg-sage-50/50">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+            <h3 id="modal-title" className="text-lg font-semibold text-slate-900">{title}</h3>
             {description && (
               <p className="text-xs text-slate-500 mt-0.5">{description}</p>
             )}
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />

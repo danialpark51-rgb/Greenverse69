@@ -1005,33 +1005,111 @@ export async function fetchPlantingPlans(userId?: string): Promise<{ data: DbPla
 // 10. BATCH 2: CLIMATE INTELLIGENCE & WEATHER STATE
 // ==========================================
 
-export function getClimateIntelligence(latitude?: number | null, longitude?: number | null): import('../types/planting').WeatherDataState {
-  // Check if real weather API is configured in environment
-  const weatherApiKey = import.meta.env.VITE_WEATHER_API_KEY || import.meta.env.VITE_OPENWEATHER_API_KEY;
+/**
+ * Fetches live weather from Open-Meteo (https://open-meteo.com/).
+ * Open-Meteo is completely FREE and requires NO API key.
+ * Returns a WeatherDataState object for use in planting intelligence calculations.
+ */
+export async function fetchLiveWeather(
+  latitude: number,
+  longitude: number
+): Promise<import('../types/planting').WeatherDataState> {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code&timezone=auto&forecast_days=1`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error(`Open-Meteo HTTP ${response.status}`);
+    const json = await response.json();
+    const current = json?.current;
+    if (!current) throw new Error('Open-Meteo: empty current weather payload');
 
-  if (!weatherApiKey) {
+    // WMO weather code → readable condition
+    const wmoCode: number = current.weather_code ?? 0;
+    let weatherCondition = 'Clear';
+    if (wmoCode >= 95) weatherCondition = 'Thunderstorm';
+    else if (wmoCode >= 71) weatherCondition = 'Snow';
+    else if (wmoCode >= 51) weatherCondition = 'Rain';
+    else if (wmoCode >= 45) weatherCondition = 'Fog';
+    else if (wmoCode >= 2) weatherCondition = 'Partly Cloudy';
+    else if (wmoCode === 1) weatherCondition = 'Mostly Clear';
+
+    const tempC: number = current.temperature_2m ?? null;
+    const humidity: number = current.relative_humidity_2m ?? null;
+    const rainfallMm: number = current.precipitation ?? 0;
+
+    let insight = 'Live weather data loaded from Open-Meteo.';
+    if (tempC !== null && tempC > 32) {
+      insight = 'High temperature detected. Increase watering frequency during the establishment phase.';
+    } else if (rainfallMm > 10) {
+      insight = `Significant rainfall (${rainfallMm}mm) detected. Supplemental irrigation may not be needed today.`;
+    } else if (tempC !== null && tempC < 5) {
+      insight = 'Near-freezing temperatures. Avoid transplanting bare-root saplings until soil thaws.';
+    } else {
+      insight = `Conditions: ${weatherCondition}, ${tempC !== null ? tempC.toFixed(1) + '°C' : 'unknown temp'}, ${humidity ?? '--'}% humidity. ${
+        rainfallMm > 0 ? `${rainfallMm}mm precipitation recorded.` : 'No precipitation.'
+      }`;
+    }
+
+    return {
+      isConfigured: true,
+      provider: 'Open-Meteo (Free · No API Key Required)',
+      temperatureC: tempC,
+      rainfallMm,
+      humidityPct: humidity,
+      weatherCondition,
+      plantingSuitabilityInsight: insight,
+      dataSourceNotice: 'Live meteorological data via Open-Meteo API (open-meteo.com). Free, no API key required.'
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[Greenverse Weather] Open-Meteo fetch failed:', msg);
     return {
       isConfigured: false,
-      provider: 'Unconfigured (Requires VITE_WEATHER_API_KEY)',
+      provider: 'Open-Meteo (unavailable)',
       temperatureC: null,
       rainfallMm: null,
       humidityPct: null,
       weatherCondition: null,
-      plantingSuitabilityInsight: 'Live meteorological telemetry is currently unconfigured. Species and planting evaluations are computed against verified regional climate normals and historical botanical hardiness baselines.',
-      dataSourceNotice: 'No third-party weather API key detected in client environment. Greenverse does not fabricate live weather readings.'
+      plantingSuitabilityInsight:
+        'Live weather data temporarily unavailable. Planting evaluations use verified regional climate normals.',
+      dataSourceNotice: `Open-Meteo fetch failed: ${msg}. No fabricated values used.`
+    };
+  }
+}
+
+/**
+ * Synchronous climate intelligence state accessor.
+ * Returns the last-fetched weather state if coordinates provided, otherwise
+ * returns a "not configured" state that honestly discloses no live data is used.
+ * For live weather, callers should use fetchLiveWeather() with actual coordinates.
+ */
+export function getClimateIntelligence(latitude?: number | null, longitude?: number | null): import('../types/planting').WeatherDataState {
+  // If no coordinates supplied, return an honest "awaiting coordinates" state
+  if (!latitude || !longitude) {
+    return {
+      isConfigured: false,
+      provider: 'Open-Meteo (awaiting location)',
+      temperatureC: null,
+      rainfallMm: null,
+      humidityPct: null,
+      weatherCondition: null,
+      plantingSuitabilityInsight:
+        'Enable location access to load live Open-Meteo weather data for your planting site. All species evaluations use verified regional climate baselines until coordinates are provided.',
+      dataSourceNotice:
+        'No coordinates provided. Greenverse never fabricates live weather readings — baseline mode active.'
     };
   }
 
-  // If a key were configured, real integration would fetch from OpenWeather/WeatherAPI
+  // Coordinates are present — caller should await fetchLiveWeather().
+  // Return a "loading" placeholder until the async result arrives.
   return {
-    isConfigured: true,
-    provider: 'OpenWeatherMap Verified API',
-    temperatureC: 18.5,
-    rainfallMm: 2.4,
-    humidityPct: 62,
-    weatherCondition: 'Scattered Clouds',
-    plantingSuitabilityInsight: 'Optimal conditions for root establishment. Moderate humidity limits evaporative moisture stress.',
-    dataSourceNotice: 'Live meteorological telemetry verified via OpenWeather integration.'
+    isConfigured: false,
+    provider: 'Open-Meteo (fetching...)',
+    temperatureC: null,
+    rainfallMm: null,
+    humidityPct: null,
+    weatherCondition: null,
+    plantingSuitabilityInsight: 'Fetching live weather data from Open-Meteo for your coordinates...',
+    dataSourceNotice: 'Open-Meteo live fetch in progress.'
   };
 }
 

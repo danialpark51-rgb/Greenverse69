@@ -21,6 +21,12 @@ import {
   MemberLeaderboardEntry,
 } from '../types/community';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUUID(val?: string | null): val is string {
+  return typeof val === 'string' && UUID_REGEX.test(val);
+}
+
 // ==========================================
 // 1. IN-MEMORY BASELINE CACHE
 // ==========================================
@@ -889,7 +895,50 @@ export async function createCommunityPost(
   authorName?: string,
   authorAvatar?: string
 ): Promise<{ data: DbCommunityPost | null; error: Error | null; fromSupabase: boolean }> {
-  const payload = {
+  const isUserValid = isValidUUID(userId);
+  const isCommunityValid = isValidUUID(post.community_id);
+
+  const payload: any = {
+    title: post.title?.trim() || null,
+    content: post.content!.trim(),
+    media_url: post.media_url?.trim() || null,
+    post_type: post.post_type || 'general',
+    likes_count: 0,
+    comments_count: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  if (isCommunityValid) {
+    payload.community_id = post.community_id;
+  }
+  if (isUserValid) {
+    payload.author_id = userId;
+  }
+  if (authorName) {
+    payload.author_name = authorName;
+  }
+  if (authorAvatar) {
+    payload.author_avatar = authorAvatar;
+  }
+
+  try {
+    if (isUserValid) {
+      const { data, error } = await supabase.from('community_posts').insert(payload).select().single();
+      if (!error && data) {
+        localPosts.unshift(data as DbCommunityPost);
+        return { data: data as DbCommunityPost, error: null, fromSupabase: true };
+      }
+      if (error) {
+        console.warn('[Greenverse Posts] Supabase insert warning:', error.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[Greenverse Posts] insert notice:', err);
+  }
+
+  const localRecord: DbCommunityPost = {
+    id: `post-${Date.now()}`,
     community_id: post.community_id || 'comm-1',
     author_id: userId || 'local-user',
     author_name: authorName || 'Greenverse Member',
@@ -901,22 +950,7 @@ export async function createCommunityPost(
     likes_count: 0,
     comments_count: 0,
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-
-  try {
-    const { data, error } = await supabase.from('community_posts').insert(payload).select().single();
-    if (!error && data) {
-      localPosts.unshift(data as DbCommunityPost);
-      return { data: data as DbCommunityPost, error: null, fromSupabase: true };
-    }
-  } catch (err) {
-    console.warn('[Greenverse Posts] insert notice:', err);
-  }
-
-  const localRecord: DbCommunityPost = {
-    id: `post-${Date.now()}`,
-    ...payload,
+    updated_at: new Date().toISOString(),
     isLiked: false,
     comments: []
   };
@@ -928,12 +962,13 @@ export async function toggleLikePost(postId: string, userId?: string): Promise<{
   const p = localPosts.find((post) => post.id === postId);
   if (!p) return { isLiked: false, likesCount: 0 };
 
-  const nextState = !p.isLiked;
+  const isLiked = p.isLiked || false;
+  const nextState = !isLiked;
   p.isLiked = nextState;
   p.likes_count = Math.max(0, p.likes_count + (nextState ? 1 : -1));
 
   try {
-    if (userId) {
+    if (userId && isValidUUID(userId) && isValidUUID(postId)) {
       if (nextState) {
         await supabase.from('post_likes').insert({ post_id: postId, user_id: userId });
       } else {
@@ -953,6 +988,9 @@ export async function addPostComment(
   userId?: string,
   authorName?: string
 ): Promise<DbPostComment> {
+  const isPostValid = isValidUUID(postId);
+  const isUserValid = isValidUUID(userId);
+
   const newComment: DbPostComment = {
     id: `c-${Date.now()}`,
     post_id: postId,
@@ -970,7 +1008,7 @@ export async function addPostComment(
   }
 
   try {
-    if (userId) {
+    if (isPostValid && isUserValid) {
       await supabase.from('post_comments').insert({
         post_id: postId,
         author_id: userId,
@@ -983,6 +1021,109 @@ export async function addPostComment(
   }
 
   return newComment;
+}
+
+export async function updateCommunity(
+  communityId: string,
+  updates: Partial<DbCommunity>,
+  userId?: string
+): Promise<{ data: DbCommunity | null; error: Error | null }> {
+  try {
+    if (userId && isValidUUID(communityId)) {
+      const { data, error } = await supabase
+        .from('communities')
+        .update({
+          name: updates.name,
+          description: updates.description,
+          category: updates.category,
+          focus_area: updates.focus_area,
+          location_name: updates.location_name,
+          avatar_url: updates.avatar_url,
+          banner_url: updates.banner_url,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', communityId)
+        .eq('owner_id', userId)
+        .select()
+        .single();
+
+      if (!error && data) {
+        const commIdx = localCommunities.findIndex((c) => c.id === communityId);
+        if (commIdx >= 0) localCommunities[commIdx] = { ...localCommunities[commIdx], ...(data as DbCommunity) };
+        return { data: data as DbCommunity, error: null };
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Greenverse Communities] update notice:', err);
+  }
+
+  const comm = localCommunities.find((c) => c.id === communityId);
+  if (comm) {
+    Object.assign(comm, updates, { updated_at: new Date().toISOString() });
+    return { data: comm, error: null };
+  }
+  return { data: null, error: new Error('Community not found') };
+}
+
+export async function deletePostComment(commentId: string, userId?: string): Promise<boolean> {
+  for (const post of localPosts) {
+    if (post.comments) {
+      const initLen = post.comments.length;
+      post.comments = post.comments.filter((c) => c.id !== commentId);
+      if (post.comments.length < initLen) {
+        post.comments_count = Math.max(0, post.comments_count - 1);
+      }
+    }
+  }
+
+  try {
+    if (userId && isValidUUID(commentId)) {
+      await supabase.from('post_comments').delete().eq('id', commentId).eq('author_id', userId);
+    }
+  } catch (err) {
+    console.warn('[Greenverse Comments] delete notice:', err);
+  }
+  return true;
+}
+
+export async function updatePostComment(
+  commentId: string,
+  content: string,
+  userId?: string
+): Promise<boolean> {
+  for (const post of localPosts) {
+    if (post.comments) {
+      const comment = post.comments.find((c) => c.id === commentId);
+      if (comment) {
+        comment.content = content.trim();
+      }
+    }
+  }
+
+  try {
+    if (userId && isValidUUID(commentId)) {
+      await supabase
+        .from('post_comments')
+        .update({ content: content.trim() })
+        .eq('id', commentId)
+        .eq('author_id', userId);
+    }
+  } catch (err) {
+    console.warn('[Greenverse Comments] update notice:', err);
+  }
+  return true;
+}
+
+export async function deleteEvent(eventId: string, userId?: string): Promise<boolean> {
+  localEvents = localEvents.filter((e) => e.id !== eventId);
+  try {
+    if (userId && isValidUUID(eventId)) {
+      await supabase.from('green_events').delete().eq('id', eventId).eq('organizer_id', userId);
+    }
+  } catch (err) {
+    console.warn('[Greenverse Events] delete notice:', err);
+  }
+  return true;
 }
 
 export async function deletePost(postId: string, userId?: string): Promise<boolean> {

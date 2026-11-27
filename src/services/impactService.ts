@@ -12,6 +12,12 @@ import {
 } from '../types/impact';
 import { awardWalletPoints } from './economyService';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUUID(val?: string | null): val is string {
+  return typeof val === 'string' && UUID_REGEX.test(val);
+}
+
 // ==============================================================================
 // INITIAL SEED DATA
 // ==============================================================================
@@ -449,37 +455,50 @@ export async function reviewVerificationItem(
   // If approved and rewards have not yet been granted, issue points through secure ledger
   if (decision === 'approved' && !item.reward_issued && item.reward_points > 0) {
     item.reward_issued = true;
-    await awardWalletPoints(
-      item.submitter_id || 'demo-user',
-      item.reward_points,
-      `Verified ${item.submission_type.replace(/_/g, ' ')}: ${item.title}`,
-      item.id,
-      item.submission_type
-    );
+    if (isValidUUID(item.submitter_id)) {
+      try {
+        await awardWalletPoints(
+          item.submitter_id,
+          item.reward_points,
+          `Verified ${item.submission_type.replace(/_/g, ' ')}: ${item.title}`,
+          item.id,
+          item.submission_type
+        );
+      } catch (err) {
+        console.warn('[Greenverse Impact] Note: Wallet awards require backend service_role or trigger.', err);
+      }
+    }
   }
 
-  try {
-    await supabase.from('verification_queue_items').update({
+  if (isValidUUID(itemId)) {
+    const validReviewerId = isValidUUID(reviewerId) ? reviewerId : null;
+    const { error } = await supabase.from('verification_queue_items').update({
       status: decision,
-      reviewer_id: reviewerId,
+      reviewer_id: validReviewerId,
       reviewer_name: reviewerName,
       reviewer_notes: notes,
       reward_issued: item.reward_issued,
       reviewed_at: item.reviewed_at
     }).eq('id', itemId);
-  } catch {
-    // fallback
+
+    if (error) {
+      console.error('[Greenverse Impact] Error updating verification item:', error);
+      throw error;
+    }
   }
 
   return true;
 }
 
 export async function submitVerificationItem(item: Partial<VerificationQueueItem>, userId?: string, userName?: string): Promise<VerificationQueueItem> {
-  const newItem: VerificationQueueItem = {
-    id: `verif-${Date.now()}`,
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authenticated user session required to submit items for verification.');
+  }
+
+  const insertPayload = {
     submission_type: item.submission_type || 'tree_planting',
     reference_id: item.reference_id || `ref-${Date.now()}`,
-    submitter_id: userId || 'demo-user',
+    submitter_id: userId,
     submitter_name: userName || 'Field Volunteer',
     title: item.title || 'Ecological Field Action',
     description: item.description || '',
@@ -487,21 +506,25 @@ export async function submitVerificationItem(item: Partial<VerificationQueueItem
     location_name: item.location_name || '',
     latitude: item.latitude || null,
     longitude: item.longitude || null,
-    status: 'submitted',
+    status: 'submitted' as VerificationQueueStatus,
     reward_points: item.reward_points || 50,
-    reward_issued: false,
-    submitted_at: new Date().toISOString()
+    reward_issued: false
   };
 
-  localVerificationQueue.unshift(newItem);
+  const { data, error } = await supabase
+    .from('verification_queue_items')
+    .insert([insertPayload])
+    .select()
+    .single();
 
-  try {
-    await supabase.from('verification_queue_items').insert([newItem]);
-  } catch {
-    // fallback
+  if (error) {
+    console.error('[Greenverse Impact] Error submitting verification item to Supabase:', error);
+    throw error;
   }
 
-  return newItem;
+  const createdItem = data as VerificationQueueItem;
+  localVerificationQueue.unshift(createdItem);
+  return createdItem;
 }
 
 // ==============================================================================
@@ -532,10 +555,13 @@ export async function createProtectionReport(
   userId?: string,
   userName?: string
 ): Promise<TreeProtectionReport> {
-  const newReport: TreeProtectionReport = {
-    id: `prot-${Date.now()}`,
-    tree_id: report.tree_id || null,
-    reporter_id: userId || 'demo-user',
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authenticated user session required to submit tree protection reports.');
+  }
+
+  const insertPayload = {
+    tree_id: isValidUUID(report.tree_id) ? report.tree_id : null,
+    reporter_id: userId,
     reporter_name: userName || 'Canopy Sentinel',
     reporter_email: report.reporter_email || '',
     tree_species: report.tree_species || 'Indigenous Mature Tree',
@@ -548,20 +574,23 @@ export async function createProtectionReport(
     description: report.description || '',
     photo_urls: report.photo_urls || [],
     status: 'submitted',
-    is_heritage: !!report.is_heritage,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    is_heritage: !!report.is_heritage
   };
 
-  localProtectionReports.unshift(newReport);
+  const { data, error } = await supabase
+    .from('tree_protection_reports')
+    .insert([insertPayload])
+    .select()
+    .single();
 
-  try {
-    await supabase.from('tree_protection_reports').insert([newReport]);
-  } catch {
-    // fallback
+  if (error) {
+    console.error('[Greenverse Impact] Error submitting tree protection report:', error);
+    throw error;
   }
 
-  return newReport;
+  const createdReport = data as TreeProtectionReport;
+  localProtectionReports.unshift(createdReport);
+  return createdReport;
 }
 
 export async function addProtectionUpdate(
@@ -569,19 +598,53 @@ export async function addProtectionUpdate(
   updateText: string,
   newStatus?: any,
   evidenceUrl?: string,
-  responderName: string = 'Canopy Response Officer'
+  responderName: string = 'Canopy Response Officer',
+  responderId?: string
 ): Promise<boolean> {
-  const report = localProtectionReports.find(r => r.id === reportId);
-  if (!report) return false;
+  const isCloudRecord = isValidUUID(reportId);
 
-  if (newStatus) {
-    report.status = newStatus;
+  if (isCloudRecord) {
+    const effectiveResponderId = isValidUUID(responderId) ? responderId : (await supabase.auth.getUser()).data.user?.id;
+    if (!effectiveResponderId) {
+      throw new Error('Authenticated user session required to add protection update.');
+    }
+
+    const { error: updateErr } = await supabase.from('tree_protection_reports').update({
+      ...(newStatus ? { status: newStatus } : {}),
+      updated_at: new Date().toISOString()
+    }).eq('id', reportId);
+
+    if (updateErr) {
+      console.error('[Greenverse Impact] Error updating protection report:', updateErr);
+      throw updateErr;
+    }
+
+    const { error: insertErr } = await supabase.from('tree_protection_updates').insert([{
+      report_id: reportId,
+      responder_id: effectiveResponderId,
+      responder_name: responderName,
+      update_text: updateText,
+      evidence_url: evidenceUrl || null,
+      status_change_to: newStatus || null
+    }]);
+
+    if (insertErr) {
+      console.error('[Greenverse Impact] Error inserting protection update:', insertErr);
+      throw insertErr;
+    }
   }
-  report.updated_at = new Date().toISOString();
-  if (!report.responder_notes) {
-    report.responder_notes = updateText;
-  } else {
-    report.responder_notes += `\n[${new Date().toLocaleDateString()}] ${updateText}`;
+
+  const report = localProtectionReports.find(r => r.id === reportId);
+  if (report) {
+    if (newStatus) {
+      report.status = newStatus;
+    }
+    report.updated_at = new Date().toISOString();
+    if (!report.responder_notes) {
+      report.responder_notes = updateText;
+    } else {
+      report.responder_notes += `\n[${new Date().toLocaleDateString()}] ${updateText}`;
+    }
   }
 
   const update: TreeProtectionUpdate = {
@@ -595,18 +658,6 @@ export async function addProtectionUpdate(
   };
 
   localProtectionUpdates.push(update);
-
-  try {
-    await supabase.from('tree_protection_reports').update({
-      status: report.status,
-      responder_notes: report.responder_notes,
-      updated_at: report.updated_at
-    }).eq('id', reportId);
-    await supabase.from('tree_protection_updates').insert([update]);
-  } catch {
-    // fallback
-  }
-
   return true;
 }
 
@@ -641,13 +692,12 @@ export async function fetchGreenChangeRecords(): Promise<GreenChangeRecord[]> {
 }
 
 export async function createGreenChangeRecord(record: Partial<GreenChangeRecord>): Promise<GreenChangeRecord> {
-  const newRecord: GreenChangeRecord = {
-    id: `change-${Date.now()}`,
+  const insertPayload = {
     site_name: record.site_name || 'Restoration Corridor',
     location_name: record.location_name || 'Regional Planting Zone',
     latitude: record.latitude || 45.5152,
     longitude: record.longitude || -122.6784,
-    project_id: record.project_id || null,
+    project_id: isValidUUID(record.project_id) ? record.project_id : null,
     baseline_date: record.baseline_date || '2024-01-01',
     latest_date: record.latest_date || new Date().toISOString().split('T')[0],
     baseline_photo_url: record.baseline_photo_url || 'https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=800',
@@ -658,18 +708,21 @@ export async function createGreenChangeRecord(record: Partial<GreenChangeRecord>
     vegetation_increase_pct: Number(record.vegetation_increase_pct) || 250,
     notes: record.notes || 'Documented vegetative cover growth over monitoring timeframe.',
     data_source: record.data_source || 'ground_photogrammetry',
-    time_horizon_period: record.time_horizon_period || 'seasonal',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    time_horizon_period: record.time_horizon_period || 'seasonal'
   };
 
-  localChangeRecords.unshift(newRecord);
+  const { data, error } = await supabase
+    .from('green_change_records')
+    .insert([insertPayload])
+    .select()
+    .single();
 
-  try {
-    await supabase.from('green_change_records').insert([newRecord]);
-  } catch {
-    // fallback
+  if (error) {
+    console.error('[Greenverse Impact] Error creating green change record:', error);
+    throw error;
   }
 
-  return newRecord;
+  const createdRecord = data as GreenChangeRecord;
+  localChangeRecords.unshift(createdRecord);
+  return createdRecord;
 }

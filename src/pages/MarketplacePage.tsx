@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   ShoppingBag, Search, Filter, Bookmark, PlusCircle, MapPin, Tag,
@@ -12,6 +12,7 @@ import {
 } from '../services/economyService';
 import { MarketplaceListing, MarketplaceCategory, MarketplaceListingType, MarketplaceItemCondition } from '../types/economy';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { ImageUpload } from '../components/common/ImageUpload';
 
 const CATEGORIES: { key: MarketplaceCategory | 'all'; label: string }[] = [
   { key: 'all', label: 'All Categories' },
@@ -31,6 +32,7 @@ export const MarketplacePage: React.FC = () => {
 
   const [items, setItems] = useState<MarketplaceListing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [listingsError, setListingsError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCat, setSelectedCat] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -43,6 +45,7 @@ export const MarketplacePage: React.FC = () => {
   const [inquiryMsg, setInquiryMsg] = useState('');
   const [inquiryLoading, setInquiryLoading] = useState(false);
   const [inquirySuccess, setInquirySuccess] = useState(false);
+  const [inquiryError, setInquiryError] = useState<string | null>(null);
 
   // Create Listing Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -59,9 +62,11 @@ export const MarketplacePage: React.FC = () => {
     location_region: '',
   });
   const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const loadListings = async () => {
     setLoading(true);
+    setListingsError(null);
     try {
       const data = await fetchMarketplaceListings({
         category: selectedCat,
@@ -69,12 +74,17 @@ export const MarketplacePage: React.FC = () => {
         search: searchTerm
       });
       setItems(data);
-    } catch {
-      // handled
+    } catch (err: any) {
+      setListingsError(err?.message || 'Failed to load marketplace listings.');
     } finally {
       setLoading(false);
     }
   };
+
+  const loadListingsRef = useRef(loadListings);
+  useEffect(() => {
+    loadListingsRef.current = loadListings;
+  });
 
   useEffect(() => {
     loadListings();
@@ -88,10 +98,14 @@ export const MarketplacePage: React.FC = () => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'marketplace_listings' },
         () => {
-          loadListings();
+          loadListingsRef.current();
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[Marketplace] Realtime subscription status error:', err);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -107,6 +121,7 @@ export const MarketplacePage: React.FC = () => {
   const handleSendInquiry = async () => {
     if (!activeItem || !inquiryMsg.trim()) return;
     setInquiryLoading(true);
+    setInquiryError(null);
     try {
       await sendMarketplaceInquiry(activeItem.id, inquiryMsg, currentUserName, currentUserId);
       setInquirySuccess(true);
@@ -115,21 +130,47 @@ export const MarketplacePage: React.FC = () => {
         setShowInquiryModal(false);
         setInquiryMsg('');
       }, 1800);
-    } catch {
-      // handled
+    } catch (err: any) {
+      setInquiryError(err?.message || 'Failed to send inquiry. Please try again.');
     } finally {
       setInquiryLoading(false);
     }
   };
 
   const handleCreateListing = async () => {
+    if (!createForm.title.trim()) {
+      setCreateError('Please provide an item title.');
+      return;
+    }
+    if (!createForm.description.trim()) {
+      setCreateError('Please provide an item description.');
+      return;
+    }
+    if (!createForm.location_region.trim()) {
+      setCreateError('Please provide a neighborhood or region location.');
+      return;
+    }
+
     setCreateLoading(true);
+    setCreateError(null);
     try {
       await createMarketplaceListing(createForm, currentUserId, currentUserName);
       setShowCreateModal(false);
+      setCreateForm({
+        title: '',
+        category: 'plants_seedlings',
+        listing_type: 'for_sale',
+        item_condition: 'new',
+        price: 15,
+        currency: 'USD',
+        exchange_preference: '',
+        description: '',
+        image_url: '',
+        location_region: '',
+      });
       loadListings();
-    } catch {
-      // handled
+    } catch (err: any) {
+      setCreateError(err?.message || 'Failed to create listing. Please check connection and try again.');
     } finally {
       setCreateLoading(false);
     }
@@ -351,6 +392,12 @@ export const MarketplacePage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
             <h3 className="font-bold text-slate-900 text-base">Inquire: {activeItem.title}</h3>
+            {inquiryError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{inquiryError}</span>
+              </div>
+            )}
             {inquirySuccess ? (
               <div className="text-center py-6">
                 <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
@@ -395,6 +442,12 @@ export const MarketplacePage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-slate-900 text-base">Create Marketplace Listing</h3>
+            {createError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{createError}</span>
+              </div>
+            )}
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-medium mb-1">Item Title *</label>
@@ -462,13 +515,15 @@ export const MarketplacePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-700 font-medium mb-1">Image URL</label>
-                <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/..."
+                <ImageUpload
+                  label="Product / Item Photo"
                   value={createForm.image_url}
-                  onChange={e => setCreateForm(p => ({ ...p, image_url: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  onChange={url => setCreateForm(p => ({ ...p, image_url: url }))}
+                  bucket="marketplace"
+                  userId={currentUserId}
+                  folder="listings"
+                  placeholderText="Click or drop item photo"
+                  aspectRatio="video"
                 />
               </div>
 

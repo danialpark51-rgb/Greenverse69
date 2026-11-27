@@ -6,20 +6,20 @@ import { ChevronRight, Home } from 'lucide-react';
 
 const routeTitleMap: Record<string, { title: string; category: string }> = {
   '/': { title: 'Biosphere Intelligence Dashboard', category: 'Overview' },
+  '/projects': { title: 'Reforestation Projects & Transparent Funding', category: 'Overview' },
+  '/communities': { title: 'Eco-Communities & Planting Squads', category: 'Overview' },
   '/map': { title: 'Global Green Map & Biome Monitor', category: 'Overview' },
-  '/intelligence': { title: 'Smart Planting Intelligence Engine', category: 'Planting Intelligence' },
-  '/designer': { title: 'Plantation Grid & Canopy Designer', category: 'Planting Intelligence' },
-  '/passport': { title: 'Digital Tree Passport Registry', category: 'Tree Stewardship' },
-  '/care': { title: 'Tree Care, Telemetry & Survival Analytics', category: 'Tree Stewardship' },
-  '/doctor': { title: 'AI Tree Doctor & Pathogen Diagnostic Clinic', category: 'Tree Stewardship' },
-  '/protector': { title: 'Existing Tree Protector & Heritage Canopy', category: 'Tree Stewardship' },
-  '/communities': { title: 'Eco-Communities & Planting Squads', category: 'Community Action' },
-  '/opportunities': { title: 'Green Career & Reforestation Opportunities', category: 'Community Action' },
-  '/projects': { title: 'Reforestation Projects & Transparent Funding', category: 'Community Action' },
-  '/marketplace': { title: 'Green Marketplace & Restoration Supplies', category: 'Economy & Verification' },
-  '/impact': { title: 'Planetary Impact & Satellite Verification', category: 'Economy & Verification' },
-  '/wallet': { title: 'Green Wallet & Carbon Credit Rewards', category: 'Economy & Verification' },
-  '/settings': { title: 'Profile & Environmental System Settings', category: 'Account' },
+  '/protector': { title: 'Existing Tree Protector & Heritage Canopy', category: 'Planetary Protection' },
+  '/intelligence': { title: 'Smart Planting Intelligence Engine', category: 'Planting & Intelligence' },
+  '/designer': { title: 'Plantation Grid & Canopy Designer', category: 'Planting & Intelligence' },
+  '/care': { title: 'Tree Care, Telemetry & Survival Analytics', category: 'Tree Lifecycle & Health' },
+  '/doctor': { title: 'AI Tree Doctor & Pathogen Diagnostic Clinic', category: 'Tree Lifecycle & Health' },
+  '/passport': { title: 'Digital Tree Passport Registry', category: 'Tree Lifecycle & Health' },
+  '/opportunities': { title: 'Green Career & Reforestation Opportunities', category: 'Community Action & Opportunities' },
+  '/marketplace': { title: 'Green Marketplace & Restoration Supplies', category: 'Green Economy & Impact' },
+  '/impact': { title: 'Planetary Impact & Satellite Verification', category: 'Green Economy & Impact' },
+  '/wallet': { title: 'Green Wallet & Carbon Credit Rewards', category: 'Green Economy & Impact' },
+  '/settings': { title: 'Profile & Environmental System Settings', category: 'Personal' },
 };
 
 export const AppLayout: React.FC = () => {

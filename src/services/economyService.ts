@@ -668,10 +668,18 @@ export async function fetchGigs(options?: {
   }
 }
 
+function isValidUUID(str: string | null | undefined): str is string {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+}
+
 export async function createGig(gig: Partial<GreenGig>, userId?: string, userName?: string): Promise<GreenGig> {
-  const newGig: GreenGig = {
-    id: `gig-${Date.now()}`,
-    employer_id: userId || null,
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authentication required: Please sign in to create a gig.');
+  }
+
+  const insertPayload = {
+    employer_id: userId,
     employer_name: userName || 'Environmental Organizer',
     title: gig.title || 'Untitled Gig',
     category: gig.category || 'tree_planting_restoration',
@@ -682,29 +690,25 @@ export async function createGig(gig: Partial<GreenGig>, userId?: string, userNam
     job_type: gig.job_type || 'contract',
     location_type: gig.location_type || 'on_site',
     location_name: gig.location_name || '',
-    deadline: gig.deadline,
+    deadline: gig.deadline || null,
     status: 'open',
     description: gig.description || '',
     responsibilities: gig.responsibilities || [],
     requirements: gig.requirements || [],
     required_skills: gig.required_skills || [],
-    project_id: gig.project_id || null,
-    applications_count: 0,
-    created_at: new Date().toISOString()
+    project_id: isValidUUID(gig.project_id) ? gig.project_id : null,
+    applications_count: 0
   };
 
-  try {
-    const { data, error } = await supabase.from('gigs').insert([newGig]).select().single();
-    if (!error && data) {
-      localGigs.unshift(data);
-      return data;
-    }
-  } catch {
-    // continue to local fallback
+  const { data, error } = await supabase.from('gigs').insert([insertPayload]).select().single();
+  if (error) {
+    console.error('[Greenverse Economy] createGig database error:', error.message);
+    throw new Error(`Failed to create gig in database: ${error.message}`);
   }
 
-  localGigs.unshift(newGig);
-  return newGig;
+  const createdGig = data as GreenGig;
+  localGigs.unshift(createdGig);
+  return createdGig;
 }
 
 export async function applyForGig(
@@ -719,32 +723,38 @@ export async function applyForGig(
   },
   userId?: string
 ): Promise<GigApplication> {
-  const newApp: GigApplication = {
-    id: `app-${Date.now()}`,
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authentication required: Please sign in to apply for a gig.');
+  }
+  if (!isValidUUID(gigId)) {
+    throw new Error('Invalid gig identifier. Please apply to a verified database gig.');
+  }
+
+  const insertPayload = {
     gig_id: gigId,
-    applicant_id: userId || `anon-${Date.now()}`,
+    applicant_id: userId,
     applicant_name: application.applicant_name,
     applicant_email: application.applicant_email,
     experience_summary: application.experience_summary,
-    portfolio_url: application.portfolio_url,
+    portfolio_url: application.portfolio_url || null,
     skills: application.skills,
-    cover_note: application.cover_note,
-    status: 'submitted',
-    created_at: new Date().toISOString()
+    cover_note: application.cover_note || null,
+    status: 'submitted'
   };
 
-  try {
-    await supabase.from('gig_applications').insert([newApp]);
-  } catch {
-    // local fallback
+  const { data, error } = await supabase.from('gig_applications').insert([insertPayload]).select().single();
+  if (error) {
+    console.error('[Greenverse Economy] applyForGig database error:', error.message);
+    throw new Error(`Failed to submit gig application: ${error.message}`);
   }
 
-  localGigApplications.push(newApp);
+  const createdApp = data as GigApplication;
+  localGigApplications.push(createdApp);
   const gigIndex = localGigs.findIndex(g => g.id === gigId);
   if (gigIndex >= 0) {
     localGigs[gigIndex].applications_count = (localGigs[gigIndex].applications_count || 0) + 1;
   }
-  return newApp;
+  return createdApp;
 }
 
 export async function toggleBookmarkGig(gigId: string): Promise<boolean> {
@@ -779,22 +789,30 @@ export async function fetchBounties(category?: string): Promise<GreenBounty[]> {
 }
 
 export async function claimBounty(bountyId: string, userId?: string, userName?: string): Promise<boolean> {
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authentication required: Please sign in to claim a bounty.');
+  }
+  if (!isValidUUID(bountyId)) {
+    throw new Error('Invalid bounty identifier. Please claim a verified database bounty.');
+  }
+
+  const { error } = await supabase.from('bounty_claims').insert([
+    {
+      bounty_id: bountyId,
+      user_id: userId,
+      user_name: userName || 'Volunteer'
+    }
+  ]);
+
+  if (error) {
+    console.error('[Greenverse Economy] claimBounty database error:', error.message);
+    throw new Error(`Failed to claim bounty: ${error.message}`);
+  }
+
   const bounty = localBounties.find(b => b.id === bountyId);
-  if (!bounty) return false;
-
-  bounty.spots_claimed = (bounty.spots_claimed || 0) + 1;
-  bounty.is_claimed_by_user = true;
-
-  try {
-    await supabase.from('bounty_claims').insert([
-      {
-        bounty_id: bountyId,
-        user_id: userId,
-        user_name: userName || 'Volunteer'
-      }
-    ]);
-  } catch {
-    // fallback
+  if (bounty) {
+    bounty.spots_claimed = (bounty.spots_claimed || 0) + 1;
+    bounty.is_claimed_by_user = true;
   }
   return true;
 }
@@ -809,31 +827,37 @@ export async function submitBountyEvidence(
   userId?: string,
   userName?: string
 ): Promise<BountySubmission> {
-  const submission: BountySubmission = {
-    id: `sub-${Date.now()}`,
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authentication required: Please sign in to submit bounty evidence.');
+  }
+  if (!isValidUUID(bountyId)) {
+    throw new Error('Invalid bounty identifier. Submissions require a verified database bounty.');
+  }
+
+  const insertPayload = {
     bounty_id: bountyId,
-    user_id: userId || 'demo-user',
+    user_id: userId,
     user_name: userName || 'Field Volunteer',
     evidence_text: evidence.evidence_text,
-    evidence_url: evidence.evidence_url,
-    location_evidence: evidence.location_evidence,
+    evidence_url: evidence.evidence_url || null,
+    location_evidence: evidence.location_evidence || null,
     status: 'under_review',
-    reward_issued: false,
-    submitted_at: new Date().toISOString()
+    reward_issued: false
   };
 
-  try {
-    await supabase.from('bounty_submissions').insert([submission]);
-  } catch {
-    // fallback
+  const { data, error } = await supabase.from('bounty_submissions').insert([insertPayload]).select().single();
+  if (error) {
+    console.error('[Greenverse Economy] submitBountyEvidence database error:', error.message);
+    throw new Error(`Failed to submit bounty evidence: ${error.message}`);
   }
 
-  localBountySubmissions.push(submission);
+  const createdSub = data as BountySubmission;
+  localBountySubmissions.push(createdSub);
   const bounty = localBounties.find(b => b.id === bountyId);
   if (bounty) {
-    bounty.user_submission = submission;
+    bounty.user_submission = createdSub;
   }
-  return submission;
+  return createdSub;
 }
 
 export async function reviewBountySubmission(
@@ -842,6 +866,26 @@ export async function reviewBountySubmission(
   notes: string,
   reviewerId?: string
 ): Promise<boolean> {
+  // 1. Try atomic PostgreSQL RPC review_bounty_submission
+  if (isValidUUID(submissionId)) {
+    try {
+      const { data, error } = await supabase.rpc('review_bounty_submission', {
+        p_submission_id: submissionId,
+        p_decision: decision,
+        p_notes: notes || null
+      });
+      if (!error && data && data.success) {
+        return true;
+      }
+      if (error) {
+        console.warn('[Greenverse Economy] review_bounty_submission RPC notice:', error.message);
+      }
+    } catch (err) {
+      console.warn('[Greenverse Economy] RPC error, falling back to local state:', err);
+    }
+  }
+
+  // 2. Local fallback state
   const sub = localBountySubmissions.find(s => s.id === submissionId);
   if (!sub) return false;
 
@@ -913,15 +957,23 @@ export async function trackOpportunityApplication(oppId: string, status: 'intere
 }
 
 export async function reportOpportunity(oppId: string, reason: string, details: string, reporterId?: string): Promise<boolean> {
-  try {
-    await supabase.from('opportunity_reports').insert([{
-      opportunity_id: oppId,
-      reporter_id: reporterId,
-      reason,
-      details
-    }]);
-  } catch {
-    // fallback
+  if (!reporterId || !isValidUUID(reporterId)) {
+    throw new Error('Authentication required: Please sign in to report an opportunity.');
+  }
+  if (!isValidUUID(oppId)) {
+    throw new Error('Invalid opportunity identifier.');
+  }
+
+  const { error } = await supabase.from('opportunity_reports').insert([{
+    opportunity_id: oppId,
+    reporter_id: reporterId,
+    reason,
+    details
+  }]);
+
+  if (error) {
+    console.error('[Greenverse Economy] reportOpportunity database error:', error.message);
+    throw new Error(`Failed to report opportunity: ${error.message}`);
   }
   return true;
 }
@@ -930,17 +982,26 @@ export async function reportOpportunity(oppId: string, reason: string, details: 
 // 4. GREEN WALLET & AUDITABLE LEDGER SERVICE
 // ==============================================================================
 
-export async function fetchUserWallet(userId: string = 'demo-user'): Promise<UserWallet> {
-  try {
-    const { data, error } = await supabase.from('user_wallets').select('*').eq('user_id', userId).single();
-    if (!error && data) return data as UserWallet;
-  } catch {
-    // fallback
+export async function fetchUserWallet(userId?: string): Promise<UserWallet> {
+  if (userId && isValidUUID(userId)) {
+    try {
+      // 1. Try secure get_or_create_user_wallet RPC
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('get_or_create_user_wallet');
+      if (!rpcErr && rpcRes && rpcRes.success && rpcRes.wallet) {
+        return rpcRes.wallet as UserWallet;
+      }
+      // 2. Direct select fallback if RPC not yet deployed
+      const { data, error } = await supabase.from('user_wallets').select('*').eq('user_id', userId).maybeSingle();
+      if (!error && data) return data as UserWallet;
+    } catch {
+      // fallback
+    }
   }
 
-  if (!localWallets[userId]) {
-    localWallets[userId] = {
-      user_id: userId,
+  const key = userId || 'demo-user';
+  if (!localWallets[key]) {
+    localWallets[key] = {
+      user_id: key,
       green_points_balance: 100,
       total_points_earned: 100,
       total_points_redeemed: 0,
@@ -950,17 +1011,19 @@ export async function fetchUserWallet(userId: string = 'demo-user'): Promise<Use
       last_activity_at: new Date().toISOString()
     };
   }
-  return localWallets[userId];
+  return localWallets[key];
 }
 
-export async function fetchWalletTransactions(userId: string = 'demo-user'): Promise<WalletTransaction[]> {
-  try {
-    const { data, error } = await supabase.from('wallet_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    if (!error && data && data.length > 0) return data as WalletTransaction[];
-  } catch {
-    // fallback
+export async function fetchWalletTransactions(userId?: string): Promise<WalletTransaction[]> {
+  if (userId && isValidUUID(userId)) {
+    try {
+      const { data, error } = await supabase.from('wallet_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+      if (!error && data && data.length > 0) return data as WalletTransaction[];
+    } catch {
+      // fallback
+    }
   }
-  return localTransactions.filter(tx => tx.user_id === userId || userId === 'demo-user');
+  return localTransactions.filter(tx => (userId && tx.user_id === userId) || !userId || userId === 'demo-user');
 }
 
 /**
@@ -1008,7 +1071,8 @@ export async function awardWalletPoints(
     if (walletErr) {
       console.warn('[Greenverse Economy] Direct wallet write blocked by RLS as intended. Points must be awarded via backend trigger or service_role.', walletErr.message);
     }
-    const { error: txErr } = await supabase.from('wallet_transactions').insert([newTx]);
+    const { id: _ignoreId, ...txPayload } = newTx;
+    const { error: txErr } = await supabase.from('wallet_transactions').insert([txPayload]);
     if (txErr) {
       console.warn('[Greenverse Economy] Direct transaction insert blocked by RLS as intended.', txErr.message);
     }
@@ -1020,9 +1084,57 @@ export async function awardWalletPoints(
 }
 
 export async function redeemPointsOption(userId: string, optionId: string): Promise<{ success: boolean; message: string }> {
+  if (!isValidUUID(userId)) {
+    return { success: false, message: 'Valid authenticated user session required to redeem points.' };
+  }
+
   const option = INITIAL_REDEMPTIONS.find(r => r.id === optionId);
   if (!option) return { success: false, message: 'Invalid redemption option.' };
 
+  // 1. Try secure PostgreSQL RPC redeem_wallet_points (Migration 09)
+  try {
+    const { data, error } = await supabase.rpc('redeem_wallet_points', {
+      p_reward_item_id: option.id,
+      p_reward_name: option.name,
+      p_category: option.category,
+      p_points_cost: option.points_cost,
+      p_fulfillment_details: `Redemption requested via Greenverse Wallet for ${option.name}`
+    });
+
+    if (!error && data) {
+      if (data.success) {
+        // Also update local cache so UI synchronizes immediately
+        const wallet = await fetchUserWallet(userId);
+        wallet.green_points_balance = data.new_balance;
+        wallet.total_points_redeemed += option.points_cost;
+
+        localTransactions.unshift({
+          id: data.transaction_id || `tx-${Date.now()}`,
+          user_id: userId,
+          transaction_type: 'redemption',
+          amount: -option.points_cost,
+          status: 'completed',
+          reference_id: option.id,
+          reference_type: 'redemption',
+          description: `Redeemed: ${option.name}`,
+          balance_after: data.new_balance,
+          audit_hash: `0x${Date.now().toString(16)}...sec`,
+          created_at: new Date().toISOString()
+        });
+
+        return { success: true, message: `Successfully redeemed ${option.name}! Balance updated.` };
+      } else {
+        return { success: false, message: data.error || 'Redemption rejected by wallet security checks.' };
+      }
+    }
+    if (error) {
+      console.warn('[Greenverse Economy] redeem_wallet_points RPC notice:', error.message);
+    }
+  } catch (rpcErr) {
+    console.warn('[Greenverse Economy] RPC invocation notice:', rpcErr);
+  }
+
+  // 2. Local fallback if RPC is not yet executed on remote database
   const wallet = await fetchUserWallet(userId);
   if (wallet.green_points_balance < option.points_cost) {
     return { success: false, message: `Insufficient points. You need ${option.points_cost} points (Balance: ${wallet.green_points_balance}).` };
@@ -1049,9 +1161,7 @@ export async function redeemPointsOption(userId: string, optionId: string): Prom
   localTransactions.unshift(newTx);
 
   try {
-    await supabase.from('user_wallets').upsert([wallet]);
-    await supabase.from('wallet_transactions').insert([newTx]);
-    await supabase.from('wallet_redemptions').insert([{
+    const { error: redErr } = await supabase.from('wallet_redemptions').insert([{
       user_id: userId,
       reward_item_id: option.id,
       reward_name: option.name,
@@ -1059,8 +1169,11 @@ export async function redeemPointsOption(userId: string, optionId: string): Prom
       points_cost: option.points_cost,
       status: 'processing'
     }]);
-  } catch {
-    // fallback
+    if (redErr) {
+      console.warn('[Greenverse Economy] Wallet redemption insert warning:', redErr.message);
+    }
+  } catch (err: any) {
+    console.warn('[Greenverse Economy] Local redemption fallback recorded:', err);
   }
 
   return { success: true, message: `Redeemed ${option.name}! Details and voucher certificate logged in your wallet.` };
@@ -1095,7 +1208,11 @@ export async function fetchUserSkillProfile(userId: string = 'demo-user'): Promi
   return localSkillProfiles[userId];
 }
 
-export async function saveUserSkillProfile(profile: Partial<UserSkillProfile>, userId: string = 'demo-user'): Promise<UserSkillProfile> {
+export async function saveUserSkillProfile(profile: Partial<UserSkillProfile>, userId?: string): Promise<UserSkillProfile> {
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authentication required: Please sign in to save your skill profile.');
+  }
+
   const existing = await fetchUserSkillProfile(userId);
   const updated: UserSkillProfile = {
     ...existing,
@@ -1104,14 +1221,13 @@ export async function saveUserSkillProfile(profile: Partial<UserSkillProfile>, u
     updated_at: new Date().toISOString()
   };
 
-  localSkillProfiles[userId] = updated;
-
-  try {
-    await supabase.from('user_skill_profiles').upsert([updated]);
-  } catch {
-    // fallback
+  const { error } = await supabase.from('user_skill_profiles').upsert([updated]);
+  if (error) {
+    console.error('[Greenverse Economy] saveUserSkillProfile database error:', error.message);
+    throw new Error(`Failed to save skill profile: ${error.message}`);
   }
 
+  localSkillProfiles[userId] = updated;
   return updated;
 }
 
@@ -1271,9 +1387,12 @@ export async function fetchMarketplaceListings(options?: {
 }
 
 export async function createMarketplaceListing(listing: Partial<MarketplaceListing>, userId?: string, userName?: string): Promise<MarketplaceListing> {
-  const newListing: MarketplaceListing = {
-    id: `item-${Date.now()}`,
-    seller_id: userId || null,
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authentication required: Please sign in to create a marketplace listing.');
+  }
+
+  const insertPayload = {
+    seller_id: userId,
     seller_name: userName || 'Local Community Member',
     title: listing.title || 'Untitled Item',
     category: listing.category || 'plants_seedlings',
@@ -1281,54 +1400,52 @@ export async function createMarketplaceListing(listing: Partial<MarketplaceListi
     item_condition: listing.item_condition || 'new',
     price: Number(listing.price) || 0,
     currency: listing.currency || 'USD',
-    exchange_preference: listing.exchange_preference,
+    exchange_preference: listing.exchange_preference || null,
     description: listing.description || '',
     image_url: listing.image_url || 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&auto=format&fit=crop&q=80',
     location_region: listing.location_region || 'Local Community',
     status: 'available',
     bookmarks_count: 0,
-    inquiries_count: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    inquiries_count: 0
   };
 
-  try {
-    const { data, error } = await supabase.from('marketplace_listings').insert([newListing]).select().single();
-    if (!error && data) {
-      localMarketplace.unshift(data);
-      return data;
-    }
-  } catch {
-    // fallback
+  const { data, error } = await supabase.from('marketplace_listings').insert([insertPayload]).select().single();
+  if (error) {
+    console.error('[Greenverse Economy] createMarketplaceListing database error:', error.message);
+    throw new Error(`Failed to create marketplace listing: ${error.message}`);
   }
 
-  localMarketplace.unshift(newListing);
-  return newListing;
+  const createdListing = data as MarketplaceListing;
+  localMarketplace.unshift(createdListing);
+  return createdListing;
 }
 
 export async function sendMarketplaceInquiry(listingId: string, message: string, buyerName: string, buyerId?: string): Promise<boolean> {
-  const inquiry: MarketplaceInquiry = {
-    id: `inq-${Date.now()}`,
+  if (!buyerId || !isValidUUID(buyerId)) {
+    throw new Error('Authentication required: Please sign in to message a seller.');
+  }
+  if (!isValidUUID(listingId)) {
+    throw new Error('Invalid listing identifier. Inquiries can only be sent to verified database listings.');
+  }
+
+  const insertPayload = {
     listing_id: listingId,
-    buyer_id: buyerId || null,
+    buyer_id: buyerId,
     buyer_name: buyerName,
     message,
-    status: 'pending',
-    created_at: new Date().toISOString()
+    status: 'pending'
   };
 
-  localMarketplaceInquiries.push(inquiry);
+  const { error } = await supabase.from('marketplace_inquiries').insert([insertPayload]);
+  if (error) {
+    console.error('[Greenverse Economy] sendMarketplaceInquiry database error:', error.message);
+    throw new Error(`Failed to send inquiry: ${error.message}`);
+  }
+
   const item = localMarketplace.find(i => i.id === listingId);
   if (item) {
     item.inquiries_count = (item.inquiries_count || 0) + 1;
   }
-
-  try {
-    await supabase.from('marketplace_inquiries').insert([inquiry]);
-  } catch {
-    // fallback
-  }
-
   return true;
 }
 
@@ -1384,27 +1501,29 @@ export async function sendExpertInquiry(
   },
   senderId?: string
 ): Promise<boolean> {
-  const newInq: ExpertInquiry = {
-    id: `expinq-${Date.now()}`,
+  if (!senderId || !isValidUUID(senderId)) {
+    throw new Error('Authentication required: Please sign in to contact an expert.');
+  }
+  if (!isValidUUID(expertId)) {
+    throw new Error('Invalid expert profile identifier.');
+  }
+
+  const insertPayload = {
     expert_id: expertId,
-    sender_id: senderId || null,
+    sender_id: senderId,
     sender_name: inquiry.sender_name,
     sender_email: inquiry.sender_email,
     topic: inquiry.topic,
     message: inquiry.message,
-    preferred_date: inquiry.preferred_date,
-    status: 'pending',
-    created_at: new Date().toISOString()
+    preferred_date: inquiry.preferred_date || null,
+    status: 'pending'
   };
 
-  localExpertInquiries.push(newInq);
-
-  try {
-    await supabase.from('expert_inquiries').insert([newInq]);
-  } catch {
-    // fallback
+  const { error } = await supabase.from('expert_inquiries').insert([insertPayload]);
+  if (error) {
+    console.error('[Greenverse Economy] sendExpertInquiry database error:', error.message);
+    throw new Error(`Failed to send expert inquiry: ${error.message}`);
   }
-
   return true;
 }
 
@@ -1415,4 +1534,313 @@ export async function toggleBookmarkExpert(expertId: string): Promise<boolean> {
     return exp.is_bookmarked;
   }
   return false;
+}
+
+// ===========================================================================
+// RPC-BACKED HELPERS — Migration 13 functions
+// ===========================================================================
+
+/**
+ * Reviewer approves or rejects a bounty submission.
+ * Uses secure RPC that prevents self-approval and duplicate awards.
+ */
+export async function reviewBountyViaRPC(
+  submissionId: string,
+  reviewerId: string,
+  decision: 'approved' | 'rejected',
+  feedback?: string
+): Promise<{ success: boolean; awarded?: boolean; points?: number; error?: string }> {
+  if (!isValidUUID(submissionId) || !isValidUUID(reviewerId)) {
+    return { success: false, error: 'Invalid identifiers' };
+  }
+  try {
+    const { data, error } = await supabase.rpc('rpc_award_bounty_points', {
+      p_submission_id: submissionId,
+      p_reviewer_id:   reviewerId,
+      p_decision:      decision,
+      p_feedback:      feedback ?? null,
+    });
+    if (error) throw error;
+    return { success: data?.success ?? false, awarded: data?.awarded, points: data?.points_awarded, error: data?.error };
+  } catch (err: any) {
+    console.warn('[Greenverse Economy] rpc_award_bounty_points error:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Atomically redeems points via secure RPC with balance check and idempotency guard.
+ */
+export async function redeemPointsViaRPC(
+  userId: string,
+  pointsCost: number,
+  rewardName: string,
+  rewardId?: string
+): Promise<{ success: boolean; newBalance?: number; error?: string }> {
+  if (!isValidUUID(userId)) return { success: false, error: 'Invalid user' };
+  try {
+    const { data, error } = await supabase.rpc('rpc_redeem_points', {
+      p_user_id:     userId,
+      p_points_cost: pointsCost,
+      p_reward_name: rewardName,
+      p_reward_id:   rewardId ?? null,
+    });
+    if (error) throw error;
+    return { success: data?.success ?? false, newBalance: data?.new_balance, error: data?.error };
+  } catch (err: any) {
+    console.warn('[Greenverse Economy] rpc_redeem_points error:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Employer accepts, shortlists, or rejects a gig application.
+ */
+export async function decideGigApplication(
+  applicationId: string,
+  decision: 'shortlisted' | 'accepted' | 'rejected',
+  message?: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isValidUUID(applicationId)) return { success: false, error: 'Invalid application ID' };
+  try {
+    const { data, error } = await supabase.rpc('rpc_decide_gig_application', {
+      p_application_id: applicationId,
+      p_decision:       decision,
+      p_message:        message ?? null,
+    });
+    if (error) throw error;
+    if (data?.success === false) return { success: false, error: data.error };
+    return { success: true };
+  } catch (err: any) {
+    // Fallback: direct update (requires row-level ownership)
+    const { error: upErr } = await supabase.from('gig_applications')
+      .update({ status: decision, updated_at: new Date().toISOString() })
+      .eq('id', applicationId);
+    if (upErr) return { success: false, error: upErr.message };
+    return { success: true };
+  }
+}
+
+/**
+ * Withdraw own gig application.
+ */
+export async function withdrawGigApplication(applicationId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isValidUUID(applicationId)) return { success: false, error: 'Invalid application ID' };
+  try {
+    const { data, error } = await supabase.rpc('rpc_withdraw_gig_application', {
+      p_application_id: applicationId,
+    });
+    if (error) throw error;
+    if (data?.success === false) return { success: false, error: data.error };
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Fetch all applications submitted by the current user.
+ */
+export async function fetchMyGigApplications(userId: string): Promise<GigApplication[]> {
+  if (!isValidUUID(userId)) return [];
+  try {
+    const { data, error } = await supabase
+      .from('gig_applications')
+      .select('*, gigs(title, employer_name, compensation_type, compensation_amount, compensation_currency, compensation_frequency, status)')
+      .eq('applicant_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error && data) return data as unknown as GigApplication[];
+  } catch (err) {
+    console.warn('[Greenverse Economy] fetchMyGigApplications error:', err);
+  }
+  return [];
+}
+
+/**
+ * Fetch all applications for a gig owned by the current user (employer view).
+ */
+export async function fetchGigApplicationsForEmployer(gigId: string): Promise<GigApplication[]> {
+  if (!isValidUUID(gigId)) return [];
+  try {
+    const { data, error } = await supabase
+      .from('gig_applications')
+      .select('*')
+      .eq('gig_id', gigId)
+      .order('created_at', { ascending: false });
+    if (!error && data) return data as GigApplication[];
+  } catch (err) {
+    console.warn('[Greenverse Economy] fetchGigApplicationsForEmployer error:', err);
+  }
+  return [];
+}
+
+/**
+ * Submit a new community opportunity (goes into pending_review status).
+ */
+export async function submitOpportunity(opp: {
+  title: string;
+  opportunity_type: string;
+  organization: string;
+  description: string;
+  eligibility?: string;
+  deadline?: string;
+  external_link?: string;
+  location_name?: string;
+  is_remote?: boolean;
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('rpc_submit_opportunity', {
+      p_title:         opp.title,
+      p_opp_type:      opp.opportunity_type,
+      p_organization:  opp.organization,
+      p_description:   opp.description,
+      p_eligibility:   opp.eligibility ?? null,
+      p_deadline:      opp.deadline ?? null,
+      p_external_link: opp.external_link ?? null,
+      p_location:      opp.location_name ?? null,
+      p_is_remote:     opp.is_remote ?? false,
+    });
+    if (error) throw error;
+    if (data?.success === false) return { success: false, error: data.error };
+    return { success: true, id: data?.id };
+  } catch (err: any) {
+    // Fallback: direct insert
+    const { data, error: insErr } = await supabase.from('opportunities').insert([{
+      title:            opp.title,
+      opportunity_type: opp.opportunity_type,
+      organization:     opp.organization,
+      description:      opp.description,
+      eligibility:      opp.eligibility || null,
+      deadline:         opp.deadline || null,
+      external_link:    opp.external_link || null,
+      location_name:    opp.location_name || null,
+      is_remote:        opp.is_remote || false,
+      status:           'pending_review',
+    }]).select('id').single();
+    if (insErr) return { success: false, error: insErr.message };
+    return { success: true, id: (data as any)?.id };
+  }
+}
+
+/**
+ * Create or update an expert profile for the current authenticated user.
+ */
+export async function upsertExpertProfile(
+  profile: Partial<GreenExpertProfile>,
+  userId: string
+): Promise<GreenExpertProfile> {
+  if (!isValidUUID(userId)) throw new Error('Authentication required');
+
+  const payload = {
+    user_id:             userId,
+    full_name:           profile.full_name || 'Green Expert',
+    title:               profile.title || 'Environmental Specialist',
+    specialization:      profile.specialization || 'ecologist',
+    bio:                 profile.bio || '',
+    years_experience:    Number(profile.years_experience) || 0,
+    certifications:      profile.certifications || [],
+    hourly_rate:         Number(profile.hourly_rate) || 0,
+    currency:            profile.currency || 'USD',
+    availability:        profile.availability || 'consultation_available',
+    location_name:       profile.location_name || null,
+    remote_available:    profile.remote_available ?? true,
+    verification_status: 'unverified',
+  };
+
+  const { data, error } = await supabase
+    .from('expert_profiles')
+    .upsert(payload, { onConflict: 'user_id' })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[Greenverse Economy] upsertExpertProfile error:', error.message);
+    throw new Error(`Failed to save expert profile: ${error.message}`);
+  }
+  return data as GreenExpertProfile;
+}
+
+/**
+ * Fetch the current user's own expert profile (if exists).
+ */
+export async function fetchMyExpertProfile(userId: string): Promise<GreenExpertProfile | null> {
+  if (!isValidUUID(userId)) return null;
+  try {
+    const { data, error } = await supabase
+      .from('expert_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+    if (!error && data) return data as GreenExpertProfile;
+  } catch (_) { /* no profile */ }
+  return null;
+}
+
+/**
+ * Fetch bounty submissions for the current user (applicant view).
+ */
+export async function fetchMyBountySubmissions(userId: string): Promise<BountySubmission[]> {
+  if (!isValidUUID(userId)) return [];
+  try {
+    const { data, error } = await supabase
+      .from('bounty_submissions')
+      .select('*, bounties(title, reward_value, reward_type)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error && data) return data as unknown as BountySubmission[];
+  } catch (err) {
+    console.warn('[Greenverse Economy] fetchMyBountySubmissions error:', err);
+  }
+  return [];
+}
+
+/**
+ * Fetch pending bounty submissions for review (bounty creator view).
+ */
+export async function fetchPendingSubmissionsForBounty(bountyId: string): Promise<BountySubmission[]> {
+  if (!isValidUUID(bountyId)) return [];
+  try {
+    const { data, error } = await supabase
+      .from('bounty_submissions')
+      .select('*')
+      .eq('bounty_id', bountyId)
+      .order('created_at', { ascending: false });
+    if (!error && data) return data as BountySubmission[];
+  } catch (err) {
+    console.warn('[Greenverse Economy] fetchPendingSubmissionsForBounty error:', err);
+  }
+  return [];
+}
+
+/**
+ * Fetch gigs posted by the current user (employer/creator view).
+ */
+export async function fetchMyPostedGigs(userId: string): Promise<GreenGig[]> {
+  if (!isValidUUID(userId)) return [];
+  try {
+    const { data, error } = await supabase
+      .from('gigs')
+      .select('*')
+      .eq('employer_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error && data) return data as GreenGig[];
+  } catch (err) {
+    console.warn('[Greenverse Economy] fetchMyPostedGigs error:', err);
+  }
+  return [];
+}
+
+/**
+ * Update gig status (employer only).
+ */
+export async function updateGigStatus(
+  gigId: string,
+  status: 'open' | 'in_review' | 'filled' | 'closed'
+): Promise<{ success: boolean; error?: string }> {
+  if (!isValidUUID(gigId)) return { success: false, error: 'Invalid gig ID' };
+  const { error } = await supabase.from('gigs')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', gigId);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
 }

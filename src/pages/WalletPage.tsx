@@ -15,7 +15,7 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export const WalletPage: React.FC = () => {
   const { user } = useAuth();
-  const userId = user?.id || 'demo-user';
+  const userId = user?.id;
 
   const [wallet, setWallet] = useState<UserWallet | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
@@ -65,7 +65,11 @@ export const WalletPage: React.FC = () => {
           loadWalletData();
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[WalletPage] Realtime subscription status error:', err);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -73,7 +77,7 @@ export const WalletPage: React.FC = () => {
   }, [user?.id]);
 
   const handleRedeem = async () => {
-    if (!selectedOption) return;
+    if (!selectedOption || !userId) return;
     setRedeemLoading(true);
     setRedeemMessage(null);
     try {

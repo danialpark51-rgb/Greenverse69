@@ -13,7 +13,9 @@ import {
   ShieldCheck,
   ChevronDown,
   LogIn,
-  LogOut
+  LogOut,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { SearchInput } from '../common/SearchInput';
 import { NotificationDropdown } from '../common/NotificationDropdown';
@@ -22,6 +24,9 @@ import { Badge } from '../common/Badge';
 import { Modal } from '../common/Modal';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { registerTree } from '../../services/treeService';
+import { createProtectionReport } from '../../services/impactService';
+import { ThreatCategory } from '../../types/impact';
 
 interface HeaderProps {
   onOpenMobileMenu: () => void;
@@ -35,32 +40,89 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [treeFormSpecies, setTreeFormSpecies] = useState('Bur Oak');
   const [treeFormLocation, setTreeFormLocation] = useState('Upper Mississippi Sector 3');
+  const [plantLoading, setPlantLoading] = useState(false);
   const [plantSuccess, setPlantSuccess] = useState(false);
+  const [plantError, setPlantError] = useState<string | null>(null);
+  const [createdPassportCode, setCreatedPassportCode] = useState<string | null>(null);
+
+  const [reportLoading, setReportLoading] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [threatNature, setThreatNature] = useState<ThreatCategory>('unauthorized_cutting');
+  const [threatLocation, setThreatLocation] = useState('');
+  const [threatDescription, setThreatDescription] = useState('');
 
   const navigate = useNavigate();
   const { user, profile, signOut } = useAuth();
 
   const userDisplayName = profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Elena R.');
 
-  const handlePlantSubmit = (e: React.FormEvent) => {
+  const handlePlantSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPlantSuccess(true);
-    setTimeout(() => {
-      setPlantSuccess(false);
-      setIsPlantModalOpen(false);
-      navigate('/passport');
-    }, 1200);
+    setPlantLoading(true);
+    setPlantError(null);
+    try {
+      const res = await registerTree(
+        {
+          species: treeFormSpecies,
+          location_description: treeFormLocation,
+          latitude: 44.9778,
+          longitude: -93.265,
+          planting_date: new Date().toISOString().split('T')[0],
+          health_status: 'thriving',
+        },
+        user?.id
+      );
+      if (res.error) {
+        setPlantError(res.error.message);
+      } else {
+        setCreatedPassportCode(res.data?.tree_code || 'GV-TR-LIVE');
+        setPlantSuccess(true);
+        setTimeout(() => {
+          setPlantSuccess(false);
+          setIsPlantModalOpen(false);
+          navigate('/passport');
+        }, 1600);
+      }
+    } catch (err: any) {
+      setPlantError(err?.message || 'Failed to mint digital passport.');
+    } finally {
+      setPlantLoading(false);
+    }
   };
 
-  const handleReportSubmit = (e: React.FormEvent) => {
+  const handleReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setReportSuccess(true);
-    setTimeout(() => {
-      setReportSuccess(false);
-      setIsReportModalOpen(false);
-      navigate('/protector');
-    }, 1200);
+    if (!threatLocation.trim()) {
+      setReportError('Please provide location details.');
+      return;
+    }
+    setReportLoading(true);
+    setReportError(null);
+    try {
+      await createProtectionReport(
+        {
+          threat_category: threatNature,
+          location_name: threatLocation,
+          description: threatDescription || 'Urgent canopy alert submitted via Quick Action',
+          tree_species: 'Protected Urban Canopy',
+          severity: 'high',
+          urgency: 'urgent',
+        },
+        user?.id,
+        userDisplayName
+      );
+      setReportSuccess(true);
+      setTimeout(() => {
+        setReportSuccess(false);
+        setIsReportModalOpen(false);
+        navigate('/protector');
+      }, 1600);
+    } catch (err: any) {
+      setReportError(err?.message || 'Failed to dispatch patrol alert.');
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   return (
@@ -229,10 +291,16 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
               <ShieldCheck className="w-6 h-6" />
             </div>
             <h4 className="text-base font-semibold text-slate-900">Tree Twin Successfully Minted!</h4>
-            <p className="text-xs text-slate-600">Passport #GV-REG-{Math.floor(1000 + Math.random() * 9000)} generated. Redirecting to Tree Passport...</p>
+            <p className="text-xs text-slate-600">Passport #{createdPassportCode || 'GV-TR-LIVE'} registered. Redirecting to Tree Passport...</p>
           </div>
         ) : (
           <form onSubmit={handlePlantSubmit} className="space-y-4 text-xs">
+            {plantError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{plantError}</span>
+              </div>
+            )}
             <div>
               <label className="block font-medium text-slate-700 mb-1">Tree Species</label>
               <select
@@ -296,7 +364,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
               >
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" size="sm">
+              <Button type="submit" variant="primary" size="sm" disabled={plantLoading}>
+                {plantLoading && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
                 Mint Digital Passport
               </Button>
             </div>
@@ -321,20 +390,32 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
           </div>
         ) : (
           <form onSubmit={handleReportSubmit} className="space-y-4 text-xs">
+            {reportError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{reportError}</span>
+              </div>
+            )}
             <div>
               <label className="block font-medium text-slate-700 mb-1">Threat Nature</label>
-              <select className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500">
-                <option value="felling">Unauthorized Felling / Bulldozer Encroachment</option>
-                <option value="disease">Aggressive Foliage Blight / Pest Outbreak</option>
-                <option value="compaction">Severe Root Compaction from Heavy Machinery</option>
-                <option value="drought">Extreme Desiccation / Fire Hazard</option>
+              <select
+                value={threatNature}
+                onChange={(e) => setThreatNature(e.target.value as ThreatCategory)}
+                className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500"
+              >
+                <option value="unauthorized_cutting">Unauthorized Cutting / Bulldozer Encroachment</option>
+                <option value="disease_infestation">Aggressive Foliage Blight / Pest Outbreak</option>
+                <option value="root_damage">Severe Root Compaction from Heavy Machinery</option>
+                <option value="barrier_needed">Protective Barrier Needed / Construction Hazard</option>
               </select>
             </div>
 
             <div>
-              <label className="block font-medium text-slate-700 mb-1">Location Details</label>
+              <label className="block font-medium text-slate-700 mb-1">Location Details *</label>
               <input
                 type="text"
+                value={threatLocation}
+                onChange={(e) => setThreatLocation(e.target.value)}
                 placeholder="e.g. St. Anthony Falls Heritage Oak Grove, West Path"
                 required
                 className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500"
@@ -345,6 +426,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
               <label className="block font-medium text-slate-700 mb-1">Description & Evidence</label>
               <textarea
                 rows={3}
+                value={threatDescription}
+                onChange={(e) => setThreatDescription(e.target.value)}
                 placeholder="Describe machinery observed, markings on bark, or symptoms..."
                 className="w-full px-3 py-2 border border-sage-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500"
               />
@@ -359,7 +442,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
               >
                 Cancel
               </Button>
-              <Button type="submit" variant="danger" size="sm">
+              <Button type="submit" variant="danger" size="sm" disabled={reportLoading}>
+                {reportLoading && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
                 Broadcast Patrol Alert
               </Button>
             </div>

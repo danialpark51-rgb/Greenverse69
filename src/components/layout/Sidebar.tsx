@@ -61,35 +61,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'OVERVIEW',
       items: [
         { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+        { name: 'Projects & Funding', path: '/projects', icon: Sprout },
+        { name: 'Communities & Squads', path: '/communities', icon: Users },
         { name: 'Green Map', path: '/map', icon: MapPin, badge: 'Live', badgeVariant: 'emerald' },
       ],
     },
     {
-      label: 'PLANTING & DESIGN INTELLIGENCE',
+      label: 'PLANETARY PROTECTION',
+      items: [
+        { name: 'Tree Protector', path: '/protector', icon: ShieldAlert },
+      ],
+    },
+    {
+      label: 'PLANTING & INTELLIGENCE',
       items: [
         { name: 'Planting Intelligence', path: '/intelligence', icon: Sparkles, badge: 'AI', badgeVariant: 'lime' },
         { name: 'Plantation Designer', path: '/designer', icon: Grid3X3 },
       ],
     },
     {
-      label: 'TREE LIFECYCLE & CARE',
+      label: 'TREE LIFECYCLE & HEALTH',
       items: [
-        { name: 'Tree Passport', path: '/passport', icon: QrCode, badge: 'NFC', badgeVariant: 'forest' },
         { name: 'Care & Survival', path: '/care', icon: Droplets },
         { name: 'Tree Doctor', path: '/doctor', icon: Stethoscope, badge: 'Vision', badgeVariant: 'lime' },
-        { name: 'Tree Protector', path: '/protector', icon: ShieldAlert },
+        { name: 'Tree Passport', path: '/passport', icon: QrCode, badge: 'NFC', badgeVariant: 'forest' },
       ],
     },
     {
-      label: 'COMMUNITY & ACTION',
+      label: 'COMMUNITY ACTION & OPPORTUNITIES',
       items: [
-        { name: 'Communities & Squads', path: '/communities', icon: Users },
         { name: 'Green Opportunities', path: '/opportunities', icon: Briefcase, badge: 'New', badgeVariant: 'emerald' },
-        { name: 'Projects & Funding', path: '/projects', icon: Sprout },
       ],
     },
     {
-      label: 'ECONOMY & VERIFICATION',
+      label: 'GREEN ECONOMY & IMPACT',
       items: [
         { name: 'Green Marketplace', path: '/marketplace', icon: ShoppingBag },
         { name: 'Impact & Verification', path: '/impact', icon: CheckCircle2, badge: 'MRV', badgeVariant: 'forest' },
@@ -97,7 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
-      label: 'PREFERENCES',
+      label: 'PERSONAL',
       items: [
         { name: 'Profile & Settings', path: '/settings', icon: Settings },
       ],

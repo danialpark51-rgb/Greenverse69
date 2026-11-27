@@ -38,6 +38,8 @@ export const AuthPage: React.FC = () => {
   // Determine initial mode based on route (e.g., /signup or /login)
   const isSignUpInitial = location.pathname.includes('signup');
   const [isSignUp, setIsSignUp] = useState(isSignUpInitial);
+  const [isResetMode, setIsResetMode] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   // Form states
   const [email, setEmail] = useState('');
@@ -54,9 +56,38 @@ export const AuthPage: React.FC = () => {
   // Clear messages when toggling between login and signup
   const toggleMode = (signUpMode: boolean) => {
     setIsSignUp(signUpMode);
+    setIsResetMode(false);
+    setResetSent(false);
     setErrorMessage(null);
     setSuccessMessage(null);
     setConfirmationRequired(false);
+  };
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email.trim())) {
+      setErrorMessage('Please enter your valid email address to receive password reset instructions.');
+      return;
+    }
+    setIsLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/login?mode=recovery`,
+      });
+      if (error) {
+        setErrorMessage(error.message);
+      } else {
+        setResetSent(true);
+        setSuccessMessage(`Password recovery email sent to ${email.trim()}! Please check your inbox.`);
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to send password reset email.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const validateForm = (): boolean => {
@@ -279,6 +310,51 @@ export const AuthPage: React.FC = () => {
                 </button>
               </div>
             </div>
+          ) : isResetMode ? (
+            <form onSubmit={handlePasswordReset} className="space-y-4 animate-in fade-in">
+              <div className="mb-2">
+                <h3 className="text-sm font-bold text-slate-900">Reset Your Password</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Enter your registered account email and we'll send you secure password reset instructions.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Account Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="arborist@greenverse.org"
+                    className="w-full pl-10 pr-3.5 py-2.5 text-xs bg-white border border-sage-200 rounded-xl placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-2 focus:ring-forest-600 focus:border-forest-600 shadow-soft-sm transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  className="w-full font-semibold shadow-soft"
+                  isLoading={isLoading}
+                >
+                  Send Recovery Instructions
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => { setIsResetMode(false); setErrorMessage(null); setSuccessMessage(null); }}
+                  className="text-xs text-slate-500 hover:text-slate-800 py-1 transition-colors"
+                >
+                  ← Back to Sign In
+                </button>
+              </div>
+            </form>
           ) : (
             <form onSubmit={handleAuth} className="space-y-4">
               {/* Full Name field (Sign Up only) */}
@@ -326,9 +402,13 @@ export const AuthPage: React.FC = () => {
                     Password
                   </label>
                   {!isSignUp && (
-                    <span className="text-[11px] text-slate-400">
-                      Minimum 6 characters
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setIsResetMode(true); setErrorMessage(null); setSuccessMessage(null); }}
+                      className="text-[11px] font-medium text-forest-700 hover:text-forest-900 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
                   )}
                 </div>
                 <div className="relative">

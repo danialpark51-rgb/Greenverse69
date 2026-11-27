@@ -34,6 +34,7 @@ export const GreenVerificationEngine: React.FC<GreenVerificationEngineProps> = (
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const loadQueue = async () => {
     setLoading(true);
@@ -53,13 +54,18 @@ export const GreenVerificationEngine: React.FC<GreenVerificationEngineProps> = (
 
   const handleCommitReview = async () => {
     if (!activeItem) return;
+    if (!currentUserId) {
+      setReviewError('Authentication required: Please sign in as an authorized reviewer to commit audit decisions.');
+      return;
+    }
     setReviewLoading(true);
+    setReviewError(null);
     try {
       await reviewVerificationItem(
         activeItem.id,
         reviewDecision,
         reviewNotes,
-        currentUserId || 'admin-auditor',
+        currentUserId,
         currentUserName || 'Auditing Officer'
       );
       setReviewSuccess(true);
@@ -69,8 +75,8 @@ export const GreenVerificationEngine: React.FC<GreenVerificationEngineProps> = (
         setReviewNotes('');
         loadQueue();
       }, 1500);
-    } catch {
-      // handled
+    } catch (err: any) {
+      setReviewError(err?.message || 'Failed to submit verification decision. Please try again.');
     } finally {
       setReviewLoading(false);
     }
@@ -192,6 +198,12 @@ export const GreenVerificationEngine: React.FC<GreenVerificationEngineProps> = (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <h3 className="font-bold text-slate-900 text-base">Auditor Review: {activeItem.title}</h3>
+            {reviewError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{reviewError}</span>
+              </div>
+            )}
             {reviewSuccess ? (
               <div className="text-center py-6">
                 <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-2" />

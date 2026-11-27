@@ -71,7 +71,18 @@ export const ProjectHub: React.FC<ProjectHubProps> = ({
           loadData();
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'project_updates' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[ProjectHub] Realtime subscription status error:', err);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);

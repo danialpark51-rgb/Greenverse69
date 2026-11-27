@@ -437,3 +437,156 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.volunteer_opportunities TO authen
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.volunteer_registrations TO authenticated;
 GRANT SELECT ON public.community_leaderboard_scores TO authenticated;
 -- leaderboard scores are read-only for all; computed server-side only
+
+-- ============================================================
+-- 21. SECURE VOLUNTEER COUNT SYNCHRONIZATION RPC
+-- ============================================================
+-- Synchronizes current_volunteers_count on volunteer_opportunities
+-- based on actual verified registrations.
+-- • Requires caller to be authenticated.
+-- • Requires caller to have an active registration for this opportunity.
+-- • Calculates truthful count from active registrations to prevent inflation.
+-- • Automatically updates status to 'full' if max capacity reached.
+CREATE OR REPLACE FUNCTION public.increment_volunteer_count(opp_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+    v_uid UUID;
+    v_actual_count INT;
+    v_max INT;
+    v_curr_status TEXT;
+BEGIN
+    -- 1. Validate caller authentication
+    v_uid := auth.uid();
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION '[UNAUTHORIZED] Authentication required to update volunteer registration.';
+    END IF;
+
+    -- 2. Verify caller has an active registration for this opportunity
+    IF NOT EXISTS (
+        SELECT 1 FROM public.volunteer_registrations
+        WHERE opportunity_id = opp_id AND user_id = v_uid AND status = 'registered'
+    ) THEN
+        RAISE EXCEPTION '[FORBIDDEN] Caller does not have an active registration for opportunity %.', opp_id;
+    END IF;
+
+    -- 3. Calculate true active registration count (idempotent, prevents inflation / double counting)
+    SELECT COUNT(*) INTO v_actual_count
+    FROM public.volunteer_registrations
+    WHERE opportunity_id = opp_id AND status = 'registered';
+
+    -- 4. Lock opportunity row and update count and capacity status
+    SELECT max_volunteers, status INTO v_max, v_curr_status
+    FROM public.volunteer_opportunities
+    WHERE id = opp_id
+    FOR UPDATE;
+
+    IF FOUND THEN
+        UPDATE public.volunteer_opportunities
+        SET current_volunteers_count = v_actual_count,
+            status = CASE 
+                WHEN v_max IS NOT NULL AND v_actual_count >= v_max AND status = 'open' THEN 'full'
+                WHEN v_max IS NOT NULL AND v_actual_count < v_max AND status = 'full' THEN 'open'
+                ELSE status
+            END,
+            updated_at = NOW()
+        WHERE id = opp_id;
+    END IF;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.increment_volunteer_count(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.increment_volunteer_count(UUID) TO authenticated;
+
+-- ============================================================
+-- 22. AUTOMATIC VOLUNTEER COUNT & STATUS SYNCHRONIZATION TRIGGER
+-- ============================================================
+-- Automatically keeps volunteer_opportunities.current_volunteers_count
+-- and status in sync whenever registrations are inserted, updated, or deleted.
+-- • Idempotent & derived from actual 'registered' rows.
+-- • Switches 'open' -> 'full' when capacity is met.
+-- • Reopens 'full' -> 'open' when cancellations free up spots.
+-- • Preserves manual organizer states ('completed', 'cancelled').
+CREATE OR REPLACE FUNCTION public.sync_volunteer_opportunity_count()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+    v_opp_id UUID;
+    v_actual_count INT;
+    v_max INT;
+    v_curr_status TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_opp_id := OLD.opportunity_id;
+    ELSE
+        v_opp_id := NEW.opportunity_id;
+    END IF;
+
+    IF v_opp_id IS NOT NULL THEN
+        -- 1. Sync primary opportunity
+        SELECT COUNT(*) INTO v_actual_count
+        FROM public.volunteer_registrations
+        WHERE opportunity_id = v_opp_id AND status = 'registered';
+
+        SELECT max_volunteers, status INTO v_max, v_curr_status
+        FROM public.volunteer_opportunities
+        WHERE id = v_opp_id
+        FOR UPDATE;
+
+        IF FOUND THEN
+            UPDATE public.volunteer_opportunities
+            SET current_volunteers_count = v_actual_count,
+                status = CASE 
+                    WHEN v_max IS NOT NULL AND v_actual_count >= v_max AND status = 'open' THEN 'full'
+                    WHEN v_max IS NOT NULL AND v_actual_count < v_max AND status = 'full' THEN 'open'
+                    ELSE status
+                END,
+                updated_at = NOW()
+            WHERE id = v_opp_id;
+        END IF;
+    END IF;
+
+    -- 2. If UPDATE modified opportunity_id, sync previous opportunity as well
+    IF TG_OP = 'UPDATE' AND OLD.opportunity_id IS NOT NULL AND OLD.opportunity_id IS DISTINCT FROM NEW.opportunity_id THEN
+        SELECT COUNT(*) INTO v_actual_count
+        FROM public.volunteer_registrations
+        WHERE opportunity_id = OLD.opportunity_id AND status = 'registered';
+
+        SELECT max_volunteers, status INTO v_max, v_curr_status
+        FROM public.volunteer_opportunities
+        WHERE id = OLD.opportunity_id
+        FOR UPDATE;
+
+        IF FOUND THEN
+            UPDATE public.volunteer_opportunities
+            SET current_volunteers_count = v_actual_count,
+                status = CASE 
+                    WHEN v_max IS NOT NULL AND v_actual_count >= v_max AND status = 'open' THEN 'full'
+                    WHEN v_max IS NOT NULL AND v_actual_count < v_max AND status = 'full' THEN 'open'
+                    ELSE status
+                END,
+                updated_at = NOW()
+            WHERE id = OLD.opportunity_id;
+        END IF;
+    END IF;
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_sync_volunteer_count ON public.volunteer_registrations;
+CREATE TRIGGER trg_sync_volunteer_count
+    AFTER INSERT OR UPDATE OF status, opportunity_id OR DELETE
+    ON public.volunteer_registrations
+    FOR EACH ROW
+    EXECUTE FUNCTION public.sync_volunteer_opportunity_count();
+
+REVOKE EXECUTE ON FUNCTION public.sync_volunteer_opportunity_count() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.sync_volunteer_opportunity_count() TO authenticated;
+

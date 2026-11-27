@@ -326,7 +326,7 @@ BEGIN
   UPDATE public.user_wallets SET
     green_points_balance = v_new_balance,
     total_points_earned = total_points_earned + v_rule.points_reward,
-    last_transaction_at = NOW()
+    last_activity_at = NOW()
   WHERE user_id = p_user_id;
 
   -- Record transaction

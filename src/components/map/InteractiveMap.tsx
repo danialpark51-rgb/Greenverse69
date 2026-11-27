@@ -79,6 +79,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
 
   // Initialize Map Instance
   useEffect(() => {
@@ -234,7 +235,13 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   };
 
   const handleCenterOnUser = () => {
-    if (navigator.geolocation && mapInstanceRef.current) {
+    if (!navigator.geolocation) {
+      setGeoError('Geolocation is not supported by your browser.');
+      setTimeout(() => setGeoError(null), 4000);
+      return;
+    }
+    if (mapInstanceRef.current) {
+      setGeoError(null);
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
           const lat = pos.coords.latitude;
@@ -247,13 +254,39 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         },
         (err) => {
           console.warn('[Greenverse Map] Geolocation failed:', err.message);
-        }
+          let message = 'Unable to access your current location.';
+          if (err.code === 1) {
+            message = 'Location access denied. Please enable location permissions.';
+          } else if (err.code === 2) {
+            message = 'Location position is currently unavailable.';
+          } else if (err.code === 3) {
+            message = 'Location request timed out. Please try again.';
+          }
+          setGeoError(message);
+          setTimeout(() => setGeoError(null), 4000);
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
       );
     }
   };
 
   return (
     <div className={`relative overflow-hidden rounded-xl border border-sage-200 shadow-xs ${className}`}>
+      {/* Geolocation feedback banner */}
+      {geoError && (
+        <div className="absolute top-14 left-3 right-3 sm:right-auto sm:max-w-sm z-[1001] bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl shadow-md flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1">
+          <span>{geoError}</span>
+          <button
+            type="button"
+            onClick={() => setGeoError(null)}
+            className="text-rose-500 hover:text-rose-700 font-bold shrink-0"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Search & Location Bar */}
       {enableSearch && (
         <div className="absolute top-3 left-3 z-[1000] max-w-sm w-full">
@@ -290,6 +323,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 type="button"
                 onClick={handleCenterOnUser}
                 title="Locate my position"
+                aria-label="Locate my position"
                 className="p-1 rounded-md text-slate-500 hover:text-forest-700 hover:bg-forest-50 transition-colors shrink-0"
               >
                 <Crosshair className="w-3.5 h-3.5" />

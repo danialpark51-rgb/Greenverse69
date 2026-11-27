@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   GraduationCap, Search, Bookmark, ExternalLink, Clock, Building2,
-  CheckCircle2, AlertCircle, Loader2, Flag, X
+  CheckCircle2, AlertCircle, Loader2, Flag, X, PlusCircle
 } from 'lucide-react';
 import {
   fetchOpportunities,
@@ -10,6 +10,7 @@ import {
   reportOpportunity
 } from '../../services/economyService';
 import { GreenOpportunity, OpportunityType } from '../../types/economy';
+import { OpportunitySubmitForm } from './OpportunitySubmitForm';
 
 interface GreenOpportunitiesHubProps {
   currentUserId?: string;
@@ -36,6 +37,9 @@ export const GreenOpportunitiesHub: React.FC<GreenOpportunitiesHubProps> = ({ cu
 
   // Selected Detail Modal
   const [activeOpp, setActiveOpp] = useState<GreenOpportunity | null>(null);
+
+  // Submit Opportunity Modal
+  const [showSubmitForm, setShowSubmitForm] = useState(false);
 
   // Report Modal
   const [showReportModal, setShowReportModal] = useState(false);
@@ -87,15 +91,32 @@ export const GreenOpportunitiesHub: React.FC<GreenOpportunitiesHubProps> = ({ cu
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          <GraduationCap className="w-5 h-5 text-emerald-600" />
-          Environmental Opportunities & Programs
-        </h2>
-        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          Internships, research fellowships, restoration grants, scholarships, and competitive environmental challenges.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <GraduationCap className="w-5 h-5 text-emerald-600" />
+            Environmental Opportunities & Programs
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Internships, research fellowships, restoration grants, scholarships, and competitive environmental challenges.
+          </p>
+        </div>
+        {currentUserId && (
+          <button
+            onClick={() => setShowSubmitForm(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 transition shrink-0"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            Submit Opportunity
+          </button>
+        )}
       </div>
+      {showSubmitForm && (
+        <OpportunitySubmitForm
+          onClose={() => setShowSubmitForm(false)}
+          onSubmitted={() => { setShowSubmitForm(false); loadData(); }}
+        />
+      )}
 
       {/* Search & Filter Bar */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">

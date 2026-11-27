@@ -6,16 +6,33 @@ import { GreenBountiesHub } from '../components/economy/GreenBountiesHub';
 import { GreenOpportunitiesHub } from '../components/economy/GreenOpportunitiesHub';
 import { SkillsMatcherHub } from '../components/economy/SkillsMatcherHub';
 import { GreenExpertDirectory } from '../components/economy/GreenExpertDirectory';
-import { Briefcase, Award, GraduationCap, Sparkles, UserCheck } from 'lucide-react';
+import { GreenReputationDashboard } from '../components/economy/GreenReputationDashboard';
+import { MyGigApplications } from '../components/economy/MyGigApplications';
+import { EmployerGigDashboard } from '../components/economy/EmployerGigDashboard';
+import {
+  Briefcase, Award, GraduationCap, Sparkles, UserCheck,
+  Star, ClipboardList, LayoutDashboard
+} from 'lucide-react';
 
-type EconomyTab = 'gigs' | 'bounties' | 'opportunities' | 'matching' | 'experts';
+type EconomyTab =
+  | 'gigs'
+  | 'my_applications'
+  | 'employer'
+  | 'bounties'
+  | 'opportunities'
+  | 'matching'
+  | 'experts'
+  | 'reputation';
 
-const TABS: { key: EconomyTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { key: 'gigs', label: 'Green Gigs', icon: Briefcase },
-  { key: 'bounties', label: 'Bounties & Tasks', icon: Award },
-  { key: 'opportunities', label: 'Programs & Grants', icon: GraduationCap },
-  { key: 'matching', label: 'Skills Matcher', icon: Sparkles },
-  { key: 'experts', label: 'Expert Directory', icon: UserCheck },
+const TABS: { key: EconomyTab; label: string; icon: React.ComponentType<{ className?: string }>; authRequired?: boolean }[] = [
+  { key: 'gigs',            label: 'Green Gigs',       icon: Briefcase },
+  { key: 'my_applications', label: 'My Applications',  icon: ClipboardList, authRequired: true },
+  { key: 'employer',        label: 'Employer Hub',     icon: LayoutDashboard, authRequired: true },
+  { key: 'bounties',        label: 'Bounties & Tasks', icon: Award },
+  { key: 'opportunities',   label: 'Programs & Grants',icon: GraduationCap },
+  { key: 'matching',        label: 'Skills Matcher',   icon: Sparkles },
+  { key: 'experts',         label: 'Expert Directory', icon: UserCheck },
+  { key: 'reputation',      label: 'Reputation',       icon: Star, authRequired: true },
 ];
 
 export const OpportunitiesPage: React.FC = () => {
@@ -39,11 +56,14 @@ export const OpportunitiesPage: React.FC = () => {
     setSearchParams({ tab });
   };
 
+  // Filter tabs: hide auth-required tabs when not signed in
+  const visibleTabs = TABS.filter(t => !t.authRequired || !!currentUserId);
+
   return (
     <div className="space-y-6">
       {/* Top Navigation Tabs */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 border-b border-slate-200/80 scrollbar-hide">
-        {TABS.map(tab => {
+        {visibleTabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
           return (
@@ -67,6 +87,12 @@ export const OpportunitiesPage: React.FC = () => {
       {activeTab === 'gigs' && (
         <GreenGigsHub currentUserId={currentUserId} currentUserName={currentUserName} />
       )}
+      {activeTab === 'my_applications' && (
+        <MyGigApplications currentUserId={currentUserId} />
+      )}
+      {activeTab === 'employer' && (
+        <EmployerGigDashboard currentUserId={currentUserId} />
+      )}
       {activeTab === 'bounties' && (
         <GreenBountiesHub currentUserId={currentUserId} currentUserName={currentUserName} />
       )}
@@ -78,6 +104,9 @@ export const OpportunitiesPage: React.FC = () => {
       )}
       {activeTab === 'experts' && (
         <GreenExpertDirectory currentUserId={currentUserId} currentUserName={currentUserName} />
+      )}
+      {activeTab === 'reputation' && (
+        <GreenReputationDashboard currentUserId={currentUserId} />
       )}
     </div>
   );

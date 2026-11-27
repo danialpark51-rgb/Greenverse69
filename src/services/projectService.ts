@@ -574,19 +574,31 @@ export async function fetchProjectById(id: string): Promise<Project | null> {
   return localProjects.find((p) => p.id === id) || null;
 }
 
+function isValidUUID(str: string | null | undefined): str is string {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+}
+
 export async function createProject(
   project: Partial<Project>,
   userId?: string,
   userName?: string
 ): Promise<{ data: Project | null; error: Error | null; fromSupabase: boolean }> {
-  const payload: Project = {
-    id: `proj-${Date.now()}`,
-    owner_id: userId || null,
+  if (!userId || !isValidUUID(userId)) {
+    return {
+      data: null,
+      error: new Error('Authentication required: Please sign in to propose a project.'),
+      fromSupabase: false
+    };
+  }
+
+  const dbPayload = {
+    owner_id: userId,
     owner_name: userName || 'Environmental Organizer',
-    community_id: project.community_id || null,
-    squad_id: project.squad_id || null,
+    community_id: isValidUUID(project.community_id) ? project.community_id : null,
+    squad_id: isValidUUID(project.squad_id) ? project.squad_id : null,
     title: project.title!.trim(),
-    slug: project.title!.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    slug: project.title!.toLowerCase().replace(/[^a-z0-9]+/g, '-') + `-${Date.now().toString().slice(-4)}`,
     subtitle: project.subtitle?.trim() || 'Community-led ecological initiative',
     description: project.description!.trim(),
     problem_statement: project.problem_statement?.trim() || '',
@@ -614,25 +626,26 @@ export async function createProject(
     volunteers_registered: 0,
     cover_image_url: project.cover_image_url || 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&w=1200&q=80',
     expected_outcomes: project.expected_outcomes || ['Verified tree passports cataloged', 'Enhanced local canopy coverage'],
-    resource_requirements: project.resource_requirements || ['Gardening spades and gloves', 'Mulch and compost'],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    resource_requirements: project.resource_requirements || ['Gardening spades and gloves', 'Mulch and compost']
+  };
+
+  const { data, error } = await supabase.from('projects').insert(dbPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Projects] Database insert error:', error.message);
+    return {
+      data: null,
+      error: new Error(`Failed to create project in database: ${error.message}`),
+      fromSupabase: false
+    };
+  }
+
+  const createdProject: Project = {
+    ...(data as Project),
     is_bookmarked: false,
     user_role: 'lead_organizer'
   };
-
-  try {
-    const { data, error } = await supabase.from('projects').insert(payload).select().single();
-    if (!error && data) {
-      localProjects.unshift(data as Project);
-      return { data: data as Project, error: null, fromSupabase: true };
-    }
-  } catch (err) {
-    console.warn('[Greenverse Projects] Supabase insert notice, saved to local cache:', err);
-  }
-
-  localProjects.unshift(payload);
-  return { data: payload, error: null, fromSupabase: false };
+  localProjects.unshift(createdProject);
+  return { data: createdProject, error: null, fromSupabase: true };
 }
 
 export async function updateProject(
@@ -699,45 +712,48 @@ export async function createPledge(
   pledge: Partial<ProjectPledge>,
   userId?: string
 ): Promise<ProjectPledge> {
-  const newPledge: ProjectPledge = {
-    id: `pledge-${Date.now()}`,
+  if (!isValidUUID(pledge.project_id)) {
+    throw new Error('Invalid project identifier. Pledges require a verified database project.');
+  }
+
+  const insertPayload = {
     project_id: pledge.project_id!,
-    campaign_id: pledge.campaign_id || null,
-    user_id: userId || null,
-    tier_id: pledge.tier_id || null,
+    campaign_id: isValidUUID(pledge.campaign_id) ? pledge.campaign_id : null,
+    user_id: isValidUUID(userId) ? userId : null,
+    tier_id: isValidUUID(pledge.tier_id) ? pledge.tier_id : null,
     pledge_type: pledge.pledge_type || 'financial_pledge',
     amount: Number(pledge.amount) || 0,
     currency: pledge.currency || 'USD',
     status: 'pledged',
     supporter_name: pledge.supporter_name || 'Anonymous Steward',
-    supporter_email: pledge.supporter_email || '',
+    supporter_email: pledge.supporter_email || null,
     is_anonymous: pledge.is_anonymous || false,
-    notes: pledge.notes || '',
-    created_at: new Date().toISOString()
+    notes: pledge.notes || null
   };
 
-  localPledges.unshift(newPledge);
+  const { data, error } = await supabase.from('project_pledges').insert(insertPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Pledges] Supabase insert error:', error.message);
+    throw new Error(`Failed to record pledge: ${error.message}`);
+  }
+
+  const createdPledge = data as ProjectPledge;
+  localPledges.unshift(createdPledge);
 
   // Update project and campaign counts honestly (labeled as pledged amount)
   const proj = localProjects.find((p) => p.id === pledge.project_id);
   if (proj) {
-    proj.pledged_amount += newPledge.amount;
+    proj.pledged_amount += createdPledge.amount;
     proj.supporters_count += 1;
   }
 
   const camp = localCampaigns.find((c) => c.project_id === pledge.project_id);
   if (camp) {
-    camp.pledged_amount += newPledge.amount;
+    camp.pledged_amount += createdPledge.amount;
     camp.supporters_count += 1;
   }
 
-  try {
-    await supabase.from('project_pledges').insert(newPledge);
-  } catch (err) {
-    console.warn('[Greenverse Pledges] Supabase insert notice:', err);
-  }
-
-  return newPledge;
+  return createdPledge;
 }
 
 // ==========================================
@@ -774,33 +790,36 @@ export async function addSpendingRecord(
   userId?: string,
   userName?: string
 ): Promise<SpendingRecord> {
-  const newRecord: SpendingRecord = {
-    id: `sp-${Date.now()}`,
+  if (!isValidUUID(spending.project_id)) {
+    throw new Error('Invalid project identifier. Spending records require a verified database project.');
+  }
+
+  const insertPayload = {
     project_id: spending.project_id!,
     category: spending.category || 'General Operations',
     amount: Number(spending.amount) || 0,
     spent_date: spending.spent_date || new Date().toISOString().split('T')[0],
     vendor_or_payee: spending.vendor_or_payee!.trim(),
     description: spending.description!.trim(),
-    receipt_url: spending.receipt_url || undefined,
-    recorded_by: userId || null,
+    receipt_url: spending.receipt_url || null,
+    recorded_by: isValidUUID(userId) ? userId : null,
     recorded_by_name: userName || 'Project Controller',
-    is_verified: false, // Spending records are unverified until a project financial controller reviews them
-    created_at: new Date().toISOString()
+    is_verified: false
   };
 
+  const { data, error } = await supabase.from('project_spending_records').insert(insertPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Spending] Database insert error:', error.message);
+    throw new Error(`Failed to log spending record: ${error.message}`);
+  }
+
+  const createdRecord = data as SpendingRecord;
   if (!localSpendingRecords[spending.project_id!]) {
     localSpendingRecords[spending.project_id!] = [];
   }
-  localSpendingRecords[spending.project_id!].unshift(newRecord);
+  localSpendingRecords[spending.project_id!].unshift(createdRecord);
 
-  try {
-    await supabase.from('project_spending_records').insert(newRecord);
-  } catch (err) {
-    console.warn('[Greenverse Spending] insert notice:', err);
-  }
-
-  return newRecord;
+  return createdRecord;
 }
 
 // ==========================================
@@ -822,21 +841,33 @@ export async function applyVolunteerRole(
   userId?: string,
   userName?: string
 ): Promise<VolunteerApplication> {
-  const newApp: VolunteerApplication = {
-    id: `vapp-${Date.now()}`,
+  if (!userId || !isValidUUID(userId)) {
+    throw new Error('Authentication required: Please sign in to apply for a volunteer role.');
+  }
+  if (!isValidUUID(app.role_id) || !isValidUUID(app.project_id)) {
+    throw new Error('Invalid volunteer role or project identifier.');
+  }
+
+  const insertPayload = {
     role_id: app.role_id!,
     project_id: app.project_id!,
-    user_id: userId || 'anonymous-volunteer',
-    applicant_name: userName || 'Anonymous',
-    applicant_email: app.applicant_email || '',
+    user_id: userId,
+    applicant_name: userName || 'Environmental Volunteer',
+    applicant_email: app.applicant_email || null,
     skills: app.skills || [],
     availability: app.availability || 'Weekends',
     motivation: app.motivation || 'Committed to environmental restoration',
-    status: 'pending', // Applications start as pending; project owners approve/decline
-    created_at: new Date().toISOString()
+    status: 'pending'
   };
 
-  localVolunteerApps.push(newApp);
+  const { data, error } = await supabase.from('volunteer_applications').insert(insertPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Volunteer] apply error:', error.message);
+    throw new Error(`Failed to submit volunteer application: ${error.message}`);
+  }
+
+  const createdApp = data as VolunteerApplication;
+  localVolunteerApps.push(createdApp);
 
   // Update role spots filled count
   const roles = localVolunteerRoles[app.project_id!] || [];
@@ -851,13 +882,7 @@ export async function applyVolunteerRole(
     p.volunteers_registered += 1;
   }
 
-  try {
-    await supabase.from('volunteer_applications').insert(newApp);
-  } catch (err) {
-    console.warn('[Greenverse Volunteer] apply notice:', err);
-  }
-
-  return newApp;
+  return createdApp;
 }
 
 export async function fetchResourceRequests(projectId: string): Promise<ResourceRequest[]> {
@@ -874,24 +899,33 @@ export async function pledgeResource(
   pledge: Partial<ResourcePledge>,
   userId?: string
 ): Promise<ResourcePledge> {
-  const newPledge: ResourcePledge = {
-    id: `res-pledge-${Date.now()}`,
+  if (!isValidUUID(pledge.request_id)) {
+    throw new Error('Invalid resource request identifier.');
+  }
+
+  const insertPayload = {
     request_id: pledge.request_id!,
-    user_id: userId || null,
+    user_id: isValidUUID(userId) ? userId : null,
     donor_name: pledge.donor_name || 'Community Donor',
     quantity_offered: Number(pledge.quantity_offered) || 1,
-    notes: pledge.notes || '',
-    status: 'offered',
-    created_at: new Date().toISOString()
+    notes: pledge.notes || null,
+    status: 'offered'
   };
 
-  localResourcePledges.push(newPledge);
+  const { data, error } = await supabase.from('project_resource_pledges').insert(insertPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Resources] pledge error:', error.message);
+    throw new Error(`Failed to offer resource pledge: ${error.message}`);
+  }
+
+  const createdPledge = data as ResourcePledge;
+  localResourcePledges.push(createdPledge);
 
   // Update fulfilled count on request
   for (const projId of Object.keys(localResourceRequests)) {
     const req = localResourceRequests[projId].find((r) => r.id === pledge.request_id);
     if (req) {
-      req.quantity_fulfilled += newPledge.quantity_offered;
+      req.quantity_fulfilled += createdPledge.quantity_offered;
       if (req.quantity_fulfilled >= req.quantity_needed) {
         req.status = 'fulfilled';
       } else {
@@ -901,13 +935,7 @@ export async function pledgeResource(
     }
   }
 
-  try {
-    await supabase.from('project_resource_pledges').insert(newPledge);
-  } catch (err) {
-    console.warn('[Greenverse Resources] pledge notice:', err);
-  }
-
-  return newPledge;
+  return createdPledge;
 }
 
 // ==========================================
@@ -946,12 +974,15 @@ export async function updateMilestoneProgress(
   }
 
   try {
-    await supabase.from('project_milestones').update({
+    const { error } = await supabase.from('project_milestones').update({
       current_progress_percentage: m.current_progress_percentage,
       status: m.status,
       completion_date: m.completion_date,
       evidence_url: m.evidence_url
     }).eq('id', milestoneId);
+    if (error) {
+      console.warn('[Greenverse Milestones] update notice:', error.message);
+    }
   } catch (err) {
     console.warn('[Greenverse Milestones] update notice:', err);
   }
@@ -974,30 +1005,33 @@ export async function createProjectUpdate(
   userId?: string,
   authorName?: string
 ): Promise<ProjectUpdate> {
-  const newUpd: ProjectUpdate = {
-    id: `upd-${Date.now()}`,
+  if (!isValidUUID(update.project_id)) {
+    throw new Error('Invalid project identifier.');
+  }
+
+  const insertPayload = {
     project_id: update.project_id!,
-    author_id: userId || null,
+    author_id: isValidUUID(userId) ? userId : null,
     author_name: authorName || 'Project Steward',
     title: update.title!.trim(),
     content: update.content!.trim(),
-    media_url: update.media_url || undefined,
-    update_type: update.update_type || 'general',
-    created_at: new Date().toISOString()
+    media_url: update.media_url || null,
+    update_type: update.update_type || 'general'
   };
 
+  const { data, error } = await supabase.from('project_updates').insert(insertPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Updates] Database insert error:', error.message);
+    throw new Error(`Failed to post project update: ${error.message}`);
+  }
+
+  const createdUpd = data as ProjectUpdate;
   if (!localUpdates[update.project_id!]) {
     localUpdates[update.project_id!] = [];
   }
-  localUpdates[update.project_id!].unshift(newUpd);
+  localUpdates[update.project_id!].unshift(createdUpd);
 
-  try {
-    await supabase.from('project_updates').insert(newUpd);
-  } catch (err) {
-    console.warn('[Greenverse Updates] insert notice:', err);
-  }
-
-  return newUpd;
+  return createdUpd;
 }
 
 // ==========================================
@@ -1015,8 +1049,11 @@ export async function fetchImpactEstimate(projectId: string): Promise<ImpactEsti
 }
 
 export async function saveImpactEstimate(estimate: Partial<ImpactEstimate>): Promise<ImpactEstimate> {
-  const newEst: ImpactEstimate = {
-    id: `imp-${Date.now()}`,
+  if (!isValidUUID(estimate.project_id)) {
+    throw new Error('Invalid project identifier.');
+  }
+
+  const upsertPayload = {
     project_id: estimate.project_id!,
     trees_planned: Number(estimate.trees_planned) || 0,
     tree_survival_rate_pct: Number(estimate.tree_survival_rate_pct) || 85,
@@ -1026,19 +1063,18 @@ export async function saveImpactEstimate(estimate: Partial<ImpactEstimate>): Pro
     water_conserved_liters: Number(estimate.water_conserved_liters) || 0,
     estimated_annual_co2_kg: Number(estimate.estimated_annual_co2_kg) || 0,
     methodology_notes: estimate.methodology_notes || 'Calculation based on standard ecological allometric biomass formulas. Note: Estimated impact is not verified impact.',
-    time_horizon_years: Number(estimate.time_horizon_years) || 5,
-    created_at: new Date().toISOString()
+    time_horizon_years: Number(estimate.time_horizon_years) || 5
   };
 
-  localImpactEstimates[estimate.project_id!] = newEst;
-
-  try {
-    await supabase.from('project_impact_estimates').upsert(newEst);
-  } catch (err) {
-    console.warn('[Greenverse Impact] upsert notice:', err);
+  const { data, error } = await supabase.from('project_impact_estimates').upsert(upsertPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Impact] upsert error:', error.message);
+    throw new Error(`Failed to save impact estimate: ${error.message}`);
   }
 
-  return newEst;
+  const savedEst = data as ImpactEstimate;
+  localImpactEstimates[estimate.project_id!] = savedEst;
+  return savedEst;
 }
 
 // ==========================================
@@ -1046,18 +1082,24 @@ export async function saveImpactEstimate(estimate: Partial<ImpactEstimate>): Pro
 // ==========================================
 
 export async function submitForReview(projectId: string): Promise<boolean> {
-  const p = localProjects.find((proj) => proj.id === projectId);
-  if (!p) return false;
-  p.verification_status = 'submitted_for_review';
-  p.status = 'pending_review';
+  if (!isValidUUID(projectId)) {
+    throw new Error('Invalid project identifier.');
+  }
 
-  try {
-    await supabase.from('projects').update({
-      verification_status: 'submitted_for_review',
-      status: 'pending_review'
-    }).eq('id', projectId);
-  } catch (err) {
-    console.warn('[Greenverse Verification] submit notice:', err);
+  const { error } = await supabase.from('projects').update({
+    verification_status: 'submitted_for_review',
+    status: 'pending_review'
+  }).eq('id', projectId);
+
+  if (error) {
+    console.error('[Greenverse Verification] submit error:', error.message);
+    throw new Error(`Failed to submit project for review: ${error.message}`);
+  }
+
+  const p = localProjects.find((proj) => proj.id === projectId);
+  if (p) {
+    p.verification_status = 'submitted_for_review';
+    p.status = 'pending_review';
   }
 
   return true;
@@ -1067,23 +1109,155 @@ export async function reportProject(
   report: Partial<ProjectReport>,
   userId?: string
 ): Promise<ProjectReport> {
-  const newReport: ProjectReport = {
-    id: `rep-${Date.now()}`,
-    project_id: report.project_id!,
-    reporter_id: userId || null,
-    reason: report.reason || 'misleading_claims',
-    details: report.details!.trim(),
-    status: 'open',
-    created_at: new Date().toISOString()
-  };
-
-  localReports.push(newReport);
-
-  try {
-    await supabase.from('project_reports').insert(newReport);
-  } catch (err) {
-    console.warn('[Greenverse Reports] insert notice:', err);
+  if (!isValidUUID(report.project_id)) {
+    throw new Error('Invalid project identifier.');
   }
 
-  return newReport;
+  const insertPayload = {
+    project_id: report.project_id!,
+    reporter_id: isValidUUID(userId) ? userId : null,
+    reason: report.reason || 'misleading_claims',
+    details: report.details!.trim(),
+    status: 'open'
+  };
+
+  const { data, error } = await supabase.from('project_reports').insert(insertPayload).select().single();
+  if (error) {
+    console.error('[Greenverse Reports] insert error:', error.message);
+    throw new Error(`Failed to report project: ${error.message}`);
+  }
+
+  const createdReport = data as ProjectReport;
+  localReports.push(createdReport);
+  return createdReport;
+}
+
+// ===========================================================
+// BONUS HELPERS — Calling Migration 12 RPCs
+// ===========================================================
+
+/**
+ * Submit a project for review via the secure RPC (uses SECURITY DEFINER).
+ * Falls back to a direct update if the RPC is not yet deployed.
+ */
+export async function submitProjectForReview(projectId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isValidUUID(projectId)) return { success: false, error: 'Invalid project ID' };
+  try {
+    const { data, error } = await supabase.rpc('rpc_submit_project_for_review', { p_project_id: projectId });
+    if (error) throw error;
+    if (data?.success === false) return { success: false, error: data.error };
+    // Update local cache
+    const p = localProjects.find(proj => proj.id === projectId);
+    if (p) p.verification_status = 'submitted_for_review';
+    return { success: true };
+  } catch (err: any) {
+    console.warn('[Greenverse] RPC submit_for_review not available, using direct update:', err.message);
+    // Fallback: direct update (requires row ownership)
+    const { error: upErr } = await supabase.from('projects').update({
+      verification_status: 'submitted_for_review'
+    }).eq('id', projectId);
+    if (upErr) return { success: false, error: upErr.message };
+    return { success: true };
+  }
+}
+
+/**
+ * Cancel a user's own pledge via RPC.
+ */
+export async function cancelPledge(pledgeId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isValidUUID(pledgeId)) return { success: false, error: 'Invalid pledge ID' };
+  try {
+    const { data, error } = await supabase.rpc('rpc_cancel_pledge', { p_pledge_id: pledgeId });
+    if (error) throw error;
+    if (data?.success === false) return { success: false, error: data.error };
+    return { success: true };
+  } catch (err: any) {
+    console.warn('[Greenverse] RPC cancel_pledge unavailable:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Owner accepts or rejects a volunteer application.
+ */
+export async function decideVolunteerApplication(
+  applicationId: string,
+  decision: 'accepted' | 'rejected',
+  message?: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isValidUUID(applicationId)) return { success: false, error: 'Invalid application ID' };
+  try {
+    const { data, error } = await supabase.rpc('rpc_decide_volunteer_application', {
+      p_application_id: applicationId,
+      p_decision: decision,
+      p_message: message ?? null,
+    });
+    if (error) throw error;
+    if (data?.success === false) return { success: false, error: data.error };
+    return { success: true };
+  } catch (err: any) {
+    // Fallback: direct status update
+    const { error: upErr } = await supabase.from('volunteer_applications').update({
+      status: decision,
+      notes: message || null,
+    }).eq('id', applicationId);
+    if (upErr) return { success: false, error: upErr.message };
+    return { success: true };
+  }
+}
+
+/**
+ * Owner marks a milestone as complete with optional evidence URL.
+ */
+export async function completeMilestone(
+  milestoneId: string,
+  evidenceUrl?: string,
+  notes?: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isValidUUID(milestoneId)) return { success: false, error: 'Invalid milestone ID' };
+  try {
+    const { data, error } = await supabase.rpc('rpc_complete_milestone', {
+      p_milestone_id: milestoneId,
+      p_evidence_url: evidenceUrl ?? null,
+      p_notes: notes ?? null,
+    });
+    if (error) throw error;
+    if (data?.success === false) return { success: false, error: data.error };
+    return { success: true };
+  } catch (err: any) {
+    // Fallback
+    const { error: upErr } = await supabase.from('project_milestones').update({
+      status: 'completed',
+      completion_date: new Date().toISOString(),
+      progress_percent: 100,
+      evidence_url: evidenceUrl || null,
+      notes: notes || null,
+    }).eq('id', milestoneId);
+    if (upErr) return { success: false, error: upErr.message };
+    return { success: true };
+  }
+}
+
+/**
+ * Fetch a lightweight project summary (uses RPC_get_project_summary).
+ * Falls back to full fetchProjectById.
+ */
+export async function fetchProjectSummary(projectId: string): Promise<Record<string, unknown> | null> {
+  if (!isValidUUID(projectId)) return null;
+  try {
+    const { data, error } = await supabase.rpc('rpc_get_project_summary', { p_project_id: projectId });
+    if (!error && data && !data.error) return data as Record<string, unknown>;
+  } catch (_) { /* fall through */ }
+  const proj = await fetchProjectById(projectId);
+  if (!proj) return null;
+  return {
+    id: proj.id,
+    title: proj.title,
+    status: proj.status,
+    verification_status: proj.verification_status,
+    funding_target: proj.funding_target,
+    current_funding_raised: proj.current_funding_raised,
+    pledged_amount: proj.pledged_amount,
+    supporters_count: proj.supporters_count,
+  };
 }

@@ -7,6 +7,7 @@ import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { SearchInput } from '../components/common/SearchInput';
 import { Modal } from '../components/common/Modal';
+import { ImageUpload } from '../components/common/ImageUpload';
 import { QRCodeDisplay } from '../components/trees/QRCodeDisplay';
 import { GrowthJournalPanel } from '../components/trees/GrowthJournalPanel';
 import { AdoptTreePanel } from '../components/trees/AdoptTreePanel';
@@ -673,16 +674,16 @@ export const PassportPage: React.FC = () => {
               </select>
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Photo URL (optional)
-              </label>
-              <input
-                type="url"
-                placeholder="https://..."
+            <div className="col-span-2">
+              <ImageUpload
+                label="Sapling / Tree Photo (optional)"
                 value={regForm.photo_url}
-                onChange={(e) => setRegForm({ ...regForm, photo_url: e.target.value })}
-                className="w-full border border-sage-200 rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-forest-500"
+                onChange={(url) => setRegForm({ ...regForm, photo_url: url })}
+                bucket="trees"
+                userId={user?.id}
+                folder="registration"
+                placeholderText="Click or drop photo of planted sapling"
+                aspectRatio="video"
               />
             </div>
           </div>

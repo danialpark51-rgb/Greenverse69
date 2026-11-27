@@ -3,6 +3,7 @@ import { X, MapPin, TreePine, Calendar, Coins, Users, Target } from 'lucide-reac
 import { Project, ProjectCategory, ProjectType, ProjectStatus } from '../../types/project';
 import { createProject } from '../../services/projectService';
 import { InteractiveMap } from '../map/InteractiveMap';
+import { ImageUpload } from '../common/ImageUpload';
 
 interface ProjectCreatorProps {
   onClose: () => void;
@@ -195,10 +196,16 @@ export const ProjectCreator: React.FC<ProjectCreatorProps> = ({
                   className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Cover Image URL (Optional)</label>
-                <input type="url" value={form.cover_image_url} onChange={e => set('cover_image_url', e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl" />
+                <ImageUpload
+                  label="Project Cover Image (Optional)"
+                  value={form.cover_image_url}
+                  onChange={url => set('cover_image_url', url)}
+                  bucket="projects"
+                  userId={currentUserId}
+                  folder="covers"
+                  placeholderText="Click or drop project cover photo"
+                  aspectRatio="video"
+                />
               </div>
             </div>
           )}

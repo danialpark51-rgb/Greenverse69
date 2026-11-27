@@ -382,15 +382,15 @@ CREATE POLICY "Users manage gig bookmarks" ON public.gig_bookmarks FOR ALL TO au
 CREATE POLICY "Public read active bounties" ON public.bounties FOR SELECT USING (status = 'active');
 CREATE POLICY "Authenticated create bounties" ON public.bounties FOR INSERT TO authenticated WITH CHECK (auth.uid() = creator_id);
 CREATE POLICY "Users manage bounty claims" ON public.bounty_claims FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users submit bounty evidence" ON public.bounty_submissions FOR INSERT TO authenticated WITH CHECK (auth.uid() = submitter_id);
-CREATE POLICY "Users read own submissions" ON public.bounty_submissions FOR SELECT TO authenticated USING (auth.uid() = submitter_id);
+CREATE POLICY "Users submit bounty evidence" ON public.bounty_submissions FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users read own submissions" ON public.bounty_submissions FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Bounty creators review submissions" ON public.bounty_submissions FOR SELECT TO authenticated
   USING (auth.uid() = (SELECT creator_id FROM public.bounties WHERE id = bounty_id LIMIT 1));
 
 -- ── Opportunities ─────────────────────────────────────────
 CREATE POLICY "Public read active opportunities" ON public.opportunities FOR SELECT USING (status = 'active');
-CREATE POLICY "Users apply to opportunities" ON public.opportunity_applications FOR INSERT TO authenticated WITH CHECK (auth.uid() = applicant_id);
-CREATE POLICY "Users read own opportunity apps" ON public.opportunity_applications FOR SELECT TO authenticated USING (auth.uid() = applicant_id);
+CREATE POLICY "Users apply to opportunities" ON public.opportunity_applications FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users read own opportunity apps" ON public.opportunity_applications FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Users manage opportunity bookmarks" ON public.opportunity_bookmarks FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users report opportunities" ON public.opportunity_reports FOR INSERT TO authenticated WITH CHECK (auth.uid() = reporter_id);
 CREATE POLICY "Users read own reports" ON public.opportunity_reports FOR SELECT TO authenticated USING (auth.uid() = reporter_id);
@@ -428,9 +428,9 @@ CREATE POLICY "Sellers create listings" ON public.marketplace_listings FOR INSER
 CREATE POLICY "Sellers update own listings" ON public.marketplace_listings FOR UPDATE TO authenticated USING (auth.uid() = seller_id);
 CREATE POLICY "Sellers delete own listings" ON public.marketplace_listings FOR DELETE TO authenticated USING (auth.uid() = seller_id);
 
-CREATE POLICY "Authenticated send inquiries" ON public.marketplace_inquiries FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id);
+CREATE POLICY "Authenticated send inquiries" ON public.marketplace_inquiries FOR INSERT TO authenticated WITH CHECK (auth.uid() = buyer_id);
 CREATE POLICY "Parties read their inquiries" ON public.marketplace_inquiries FOR SELECT TO authenticated
-  USING (auth.uid() = sender_id OR auth.uid() = (SELECT seller_id FROM public.marketplace_listings WHERE id = listing_id LIMIT 1));
+  USING (auth.uid() = buyer_id OR auth.uid() = (SELECT seller_id FROM public.marketplace_listings WHERE id = listing_id LIMIT 1));
 
 CREATE POLICY "Users manage listing bookmarks" ON public.marketplace_bookmarks FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users report listings" ON public.marketplace_reports FOR INSERT TO authenticated WITH CHECK (auth.uid() = reporter_id);

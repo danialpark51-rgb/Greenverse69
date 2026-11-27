@@ -1,23 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { DbHealthRecord, DbTree, CreateHealthRecordInput } from '../types/tree';
-import { fetchHealthRecords, createHealthRecord, fetchTrees } from '../services/treeService';
+import { fetchHealthRecords, createHealthRecord, fetchTrees, runAIDiagnosis, AIDiagnosisResponse } from '../services/treeService';
 import { useAuth } from '../context/AuthContext';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import {
   Stethoscope,
-  UploadCloud,
   CheckCircle2,
   AlertTriangle,
   Cpu,
   Sparkles,
-  Search,
   ShieldCheck,
-  FileText,
   Info,
   Loader2,
-  Plus
+  Zap,
+  ListChecks,
+  ShieldAlert,
+  ClipboardList,
 } from 'lucide-react';
 
 const COMMON_SYMPTOMS = [
@@ -43,9 +43,12 @@ export const TreeDoctorPage: React.FC = () => {
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [observations, setObservations] = useState('');
   const [severity, setSeverity] = useState<'mild' | 'moderate' | 'severe'>('mild');
+
+  // AI diagnosis state
   const [isScanning, setIsScanning] = useState(false);
-  const [scanComplete, setScanComplete] = useState(false);
-  const [diagnosticFeedback, setDiagnosticFeedback] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AIDiagnosisResponse | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [recordSaved, setRecordSaved] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -84,31 +87,55 @@ export const TreeDoctorPage: React.FC = () => {
     }
 
     setIsScanning(true);
-    setDiagnosticFeedback(null);
+    setAiResult(null);
+    setAiError(null);
+    setRecordSaved(false);
 
+    // Find selected tree's species name for the AI prompt
+    const selectedTree = trees.find((t) => t.id === selectedTreeId);
+    const speciesName = selectedTree?.species ?? selectedTree?.name ?? undefined;
+
+    // 1. Call AI diagnosis via Supabase Edge Function
+    const { data: diagnosis, error: diagError } = await runAIDiagnosis({
+      symptoms: selectedSymptoms,
+      observations: observations.trim(),
+      severity,
+      speciesName,
+    });
+
+    if (diagError || !diagnosis) {
+      setAiError(diagError?.message || 'AI diagnosis failed. Please try again.');
+      setIsScanning(false);
+      return;
+    }
+
+    setAiResult(diagnosis);
+
+    // 2. Also save a health record to the database (regardless of AI result)
     const input: CreateHealthRecordInput = {
       tree_id: selectedTreeId,
       recorded_date: new Date().toISOString().split('T')[0],
       symptoms: selectedSymptoms.length > 0 ? selectedSymptoms : ['Unspecified stress symptom'],
-      observations: observations.trim() || 'Visual symptom survey logged via ArborVision triage.',
+      observations: observations.trim() || 'AI-assisted triage via ArborVision.',
       severity,
     };
 
     const res = await createHealthRecord(input, user?.id);
-    setIsScanning(false);
-    setScanComplete(true);
-
     if (res.data) {
       setRecords((prev) => [res.data!, ...prev]);
       setSelectedRecord(res.data);
-      setDiagnosticFeedback('Diagnostic triage report generated and logged to health registry.');
-      // Reset form fields
-      setSelectedSymptoms([]);
-      setObservations('');
+      setRecordSaved(true);
     }
+
+    setIsScanning(false);
+
+    // Reset form
+    setSelectedSymptoms([]);
+    setObservations('');
   };
 
-  const currentTree = trees.find((t) => t.id === selectedRecord?.tree_id);
+  const confidenceColor = (c: AIDiagnosisResponse['confidence']) =>
+    c === 'High' ? 'emerald' : c === 'Moderate' ? 'amber' : 'rose';
 
   return (
     <div className="space-y-6">
@@ -117,24 +144,26 @@ export const TreeDoctorPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <Stethoscope className="w-6 h-6 text-forest-700" />
-            Tree Health Clinic & Rule-based Diagnostic Triage
+            Tree Health Clinic — AI-Powered Diagnostic
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Structured symptom observation, rule-based triage protocols, and persistent historical health records.
+            Gemini AI analysis of observed symptoms plus persistent health record logging.
           </p>
         </div>
         <Badge variant="lime" dot>
-          Rule-Based Triage Engine Active
+          Gemini AI Diagnosis Active
         </Badge>
       </div>
 
-      {/* Prominent Rule-Based Disclaimer Banner */}
+      {/* Disclaimer Banner */}
       <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
         <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
         <div>
-          <span className="font-semibold">Rule-Based Guidance Disclaimer</span>
+          <span className="font-semibold">AI Disclaimer</span>
           <p className="text-[11px] text-amber-800 mt-0.5">
-            Diagnostic suggestions are generated using deterministic horticultural rules. They do not claim automated machine-learning precision and should not replace on-site certified arborist inspection for critical trees.
+            Diagnostic suggestions are generated by Google Gemini AI based on submitted symptoms and observations.
+            They are for informational guidance only and do not replace on-site inspection by a certified arborist for
+            critical or high-value trees.
           </p>
         </div>
       </div>
@@ -144,8 +173,8 @@ export const TreeDoctorPage: React.FC = () => {
         <Card className="lg:col-span-1 space-y-4">
           <CardHeader>
             <div>
-              <CardTitle>ArborVision Triage Evaluator</CardTitle>
-              <CardDescription>Select observed symptoms for rule-based protocol</CardDescription>
+              <CardTitle>ArborVision AI Evaluator</CardTitle>
+              <CardDescription>Select symptoms → AI generates diagnosis</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4 text-xs">
@@ -231,12 +260,19 @@ export const TreeDoctorPage: React.FC = () => {
               />
             </div>
 
-            {diagnosticFeedback && (
+            {recordSaved && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  {diagnosticFeedback}
+                  Health record saved to your registry.
                 </div>
+              </div>
+            )}
+
+            {aiError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-[11px]">
+                <AlertTriangle className="w-4 h-4 inline mr-1" />
+                {aiError}
               </div>
             )}
 
@@ -246,92 +282,114 @@ export const TreeDoctorPage: React.FC = () => {
               className="w-full"
               isLoading={isScanning}
               onClick={handleRunDiagnostic}
-              icon={<Cpu className="w-4 h-4" />}
+              icon={<Zap className="w-4 h-4" />}
             >
-              Generate Rule-based Triage
+              {isScanning ? 'Analysing with Gemini AI…' : 'Run AI Diagnosis'}
             </Button>
           </CardContent>
         </Card>
 
-        {/* Right 2 Columns: Clinical Triage & Historical Records */}
+        {/* Right 2 Columns */}
         <div className="lg:col-span-2 space-y-5">
-          {/* Active Diagnostic Report Card */}
-          {selectedRecord ? (
-            <Card className="overflow-hidden border-2 border-forest-100">
+          {/* AI Result Card */}
+          {aiResult && (
+            <Card className="overflow-hidden border-2 border-forest-200">
               <CardHeader className="bg-forest-50/60">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-mono text-xs font-bold text-forest-900">
-                      HEALTH RECORD: #{selectedRecord.id.substring(0, 12)}
-                    </span>
-                    <Badge
-                      variant={
-                        selectedRecord.severity === 'severe'
-                          ? 'rose'
-                          : selectedRecord.severity === 'moderate'
-                          ? 'amber'
-                          : 'forest'
-                      }
-                      size="sm"
-                    >
-                      {selectedRecord.severity.toUpperCase()} SEVERITY
-                    </Badge>
-                  </div>
-                  <CardTitle>
-                    {selectedRecord.symptoms.length > 0
-                      ? selectedRecord.symptoms[0]
-                      : 'General Clinical Observation'}
-                  </CardTitle>
-                  <CardDescription>
-                    Tree ID: {selectedRecord.tree_id} · Recorded: {selectedRecord.recorded_date}
-                  </CardDescription>
-                </div>
-                <Badge variant="forest" size="sm">
-                  Status: {selectedRecord.status.replace('_', ' ')}
-                </Badge>
-              </CardHeader>
-
-              <CardContent className="p-5 space-y-5">
-                {/* Symptoms Identified */}
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
-                    Observed Clinical Symptoms:
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedRecord.symptoms.map((symp) => (
-                      <span
-                        key={symp}
-                        className="px-2.5 py-1 bg-amber-50 text-amber-900 border border-amber-200 text-xs font-medium rounded-lg"
-                      >
-                        {symp}
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Sparkles className="w-4 h-4 text-forest-700" />
+                      <span className="font-semibold text-sm text-forest-900">
+                        {aiResult.ai_powered ? 'Gemini AI Diagnosis' : 'Fallback Response'}
                       </span>
-                    ))}
+                    </div>
+                    <CardTitle className="text-sm">{aiResult.diagnosis}</CardTitle>
                   </div>
+                  <Badge variant={confidenceColor(aiResult.confidence)} size="sm">
+                    {aiResult.confidence} Confidence
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="p-5 space-y-5 text-xs">
+                {/* Likely Causes */}
+                {aiResult.likely_causes.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mb-2">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                      Likely Causes
+                    </div>
+                    <ul className="space-y-1">
+                      {aiResult.likely_causes.map((c, i) => (
+                        <li key={i} className="flex items-start gap-2 text-slate-700">
+                          <span className="mt-0.5 w-4 h-4 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-[10px] font-bold shrink-0">
+                            {i + 1}
+                          </span>
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Treatment Steps */}
+                {aiResult.treatment_steps.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mb-2">
+                      <ListChecks className="w-3.5 h-3.5 text-forest-700" />
+                      Treatment Steps
+                    </div>
+                    <ol className="space-y-1.5">
+                      {aiResult.treatment_steps.map((step, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start gap-2 p-2.5 bg-forest-50/70 border border-forest-100 rounded-lg text-forest-900"
+                        >
+                          <span className="font-bold text-forest-700 shrink-0">{i + 1}.</span>
+                          {step}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                {/* Preventive Measures */}
+                {aiResult.preventive_measures.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mb-2">
+                      <ShieldCheck className="w-3.5 h-3.5 text-sky-600" />
+                      Preventive Measures
+                    </div>
+                    <ul className="space-y-1">
+                      {aiResult.preventive_measures.map((m, i) => (
+                        <li key={i} className="flex items-start gap-2 text-slate-700">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-sky-500 shrink-0 mt-0.5" />
+                          {m}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Follow-up */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mb-1">
+                    <ClipboardList className="w-3.5 h-3.5" />
+                    Follow-up Recommendation
+                  </div>
+                  <p className="text-slate-700">{aiResult.follow_up}</p>
                 </div>
 
-                {/* Observations */}
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                    Field Observations:
-                  </div>
-                  <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    {selectedRecord.observations}
-                  </p>
+                {/* Disclaimer */}
+                <div className="p-2.5 bg-amber-50 border border-amber-100 rounded-lg text-[11px] text-amber-800">
+                  <ShieldAlert className="w-3 h-3 inline mr-1" />
+                  {aiResult.disclaimer}
                 </div>
 
-                {/* Rule-based Suggested Action */}
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-forest-700" />
-                    Rule-based Suggested Action:
-                  </div>
-                  <div className="p-3.5 rounded-lg bg-forest-50/70 border border-forest-200 text-xs text-forest-900 leading-relaxed font-medium">
-                    {selectedRecord.suggested_actions ||
-                      'Rule-based Suggestion: Expand mulch perimeter, inspect root collar for excess silt, and monitor moisture telemetry weekly.'}
-                  </div>
+                {/* Model tag */}
+                <div className="text-[10px] text-slate-400 text-right">
+                  Model: {aiResult.model} · AI-Powered: {aiResult.ai_powered ? 'Yes' : 'No (Fallback)'}
                 </div>
 
-                {/* Actions */}
                 <div className="pt-3 border-t border-slate-100 flex flex-wrap gap-2 justify-end">
                   <Button
                     variant="outline"
@@ -342,10 +400,6 @@ export const TreeDoctorPage: React.FC = () => {
                   </Button>
                 </div>
               </CardContent>
-            </Card>
-          ) : (
-            <Card className="p-8 text-center text-slate-400">
-              <p className="text-xs">No clinical health records logged yet. Run a triage evaluation on the left.</p>
             </Card>
           )}
 
@@ -360,7 +414,7 @@ export const TreeDoctorPage: React.FC = () => {
               </div>
             ) : records.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-400 bg-white rounded-xl border border-sage-200">
-                No past health incidents recorded.
+                No past health incidents recorded. Run a diagnosis above to create the first record.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

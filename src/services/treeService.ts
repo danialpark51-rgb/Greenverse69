@@ -658,3 +658,54 @@ export async function createHealthRecord(input: CreateHealthRecordInput, userId?
 
   return { data: null, error: new Error('Health record could not be saved.') };
 }
+
+// ==========================================
+// AI DIAGNOSIS via Supabase Edge Function
+// ==========================================
+
+export interface AIDiagnosisRequest {
+  symptoms: string[];
+  observations: string;
+  severity: 'mild' | 'moderate' | 'severe';
+  speciesName?: string;
+  photo_url?: string;
+}
+
+export interface AIDiagnosisResponse {
+  diagnosis: string;
+  confidence: 'High' | 'Moderate' | 'Low';
+  likely_causes: string[];
+  treatment_steps: string[];
+  preventive_measures: string[];
+  follow_up: string;
+  disclaimer: string;
+  model: string;
+  ai_powered: boolean;
+  error?: boolean;
+  fallback?: boolean;
+}
+
+/**
+ * Calls the Supabase Edge Function `tree-diagnosis` which proxies to Google Gemini API.
+ * API key is NEVER exposed in client code — it lives in Supabase Edge Function secrets.
+ */
+export async function runAIDiagnosis(
+  request: AIDiagnosisRequest
+): Promise<{ data: AIDiagnosisResponse | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase.functions.invoke('tree-diagnosis', {
+      body: request,
+    });
+
+    if (error) {
+      console.error('[TreeDoctor] Edge function error:', error);
+      return { data: null, error: new Error(error.message || 'AI diagnosis service error') };
+    }
+
+    return { data: data as AIDiagnosisResponse, error: null };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error calling AI diagnosis';
+    console.error('[TreeDoctor] runAIDiagnosis error:', msg);
+    return { data: null, error: new Error(msg) };
+  }
+}

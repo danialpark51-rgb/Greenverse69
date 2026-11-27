@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { fetchBounties, claimBounty, submitBountyEvidence, reviewBountySubmission } from '../../services/economyService';
 import { GreenBounty, BountyCategory, BountySubmission } from '../../types/economy';
+import { ImageUpload } from '../common/ImageUpload';
 
 interface GreenBountiesHubProps {
   currentUserId?: string;
@@ -42,6 +43,9 @@ export const GreenBountiesHub: React.FC<GreenBountiesHubProps> = ({ currentUserI
   const [reviewDecision, setReviewDecision] = useState<'approved' | 'rejected'>('approved');
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [claimLoadingId, setClaimLoadingId] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const loadBounties = async () => {
     setLoading(true);
@@ -60,8 +64,20 @@ export const GreenBountiesHub: React.FC<GreenBountiesHubProps> = ({ currentUserI
   }, [selectedCat]);
 
   const handleClaim = async (bountyId: string) => {
-    await claimBounty(bountyId, currentUserId, currentUserName);
-    setBounties(prev => prev.map(b => b.id === bountyId ? { ...b, is_claimed_by_user: true, spots_claimed: b.spots_claimed + 1 } : b));
+    setClaimError(null);
+    if (!currentUserId) {
+      setClaimError('Please sign in to your Greenverse account to claim bounties.');
+      return;
+    }
+    setClaimLoadingId(bountyId);
+    try {
+      await claimBounty(bountyId, currentUserId, currentUserName);
+      setBounties(prev => prev.map(b => b.id === bountyId ? { ...b, is_claimed_by_user: true, spots_claimed: b.spots_claimed + 1 } : b));
+    } catch (err: any) {
+      setClaimError(err?.message || 'Failed to claim bounty task. Please try again.');
+    } finally {
+      setClaimLoadingId(null);
+    }
   };
 
   const handleSubmitEvidence = async () => {
@@ -90,12 +106,13 @@ export const GreenBountiesHub: React.FC<GreenBountiesHubProps> = ({ currentUserI
 
   const handleReviewSubmission = async (submissionId: string) => {
     setReviewLoading(true);
+    setReviewError(null);
     try {
       await reviewBountySubmission(submissionId, reviewDecision, reviewNotes, currentUserId);
       setShowReviewModal(false);
       loadBounties();
-    } catch {
-      // handled
+    } catch (err: any) {
+      setReviewError(err?.message || 'Failed to commit audit review decision.');
     } finally {
       setReviewLoading(false);
     }
@@ -123,6 +140,19 @@ export const GreenBountiesHub: React.FC<GreenBountiesHubProps> = ({ currentUserI
           <span className="font-bold">Transparent Verification Required:</span> Green Points are awarded only upon review of photographic or geotagged evidence. Duplicate submissions and fake claims are filtered to safeguard community integrity.
         </div>
       </div>
+
+      {/* Claim Error Banner */}
+      {claimError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-2xl flex items-center justify-between gap-2">
+          <span>{claimError}</span>
+          <button
+            onClick={() => setClaimError(null)}
+            className="text-rose-600 hover:text-rose-800 font-bold"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
@@ -229,10 +259,19 @@ export const GreenBountiesHub: React.FC<GreenBountiesHubProps> = ({ currentUserI
                   ) : (
                     <button
                       onClick={() => handleClaim(bounty.id)}
-                      disabled={isFull}
+                      disabled={isFull || claimLoadingId === bounty.id}
                       className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition"
                     >
-                      {isFull ? 'All Spots Claimed' : 'Claim Bounty Task'}
+                      {claimLoadingId === bounty.id ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Claiming...
+                        </>
+                      ) : isFull ? (
+                        'All Spots Claimed'
+                      ) : (
+                        'Claim Bounty Task'
+                      )}
                     </button>
                   )}
                 </div>
@@ -269,15 +308,16 @@ export const GreenBountiesHub: React.FC<GreenBountiesHubProps> = ({ currentUserI
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-700 font-medium mb-1">Photo / Verification Evidence URL *</label>
-                    <input
-                      type="url"
+                    <ImageUpload
+                      label="Task Photo / Verification Evidence"
                       value={evidenceForm.evidence_url}
-                      onChange={e => setEvidenceForm(p => ({ ...p, evidence_url: e.target.value }))}
-                      placeholder="https://images.unsplash.com/... or cloud link"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                      onChange={url => setEvidenceForm(p => ({ ...p, evidence_url: url }))}
+                      bucket="evidence"
+                      userId={currentUserId}
+                      folder="bounties"
+                      placeholderText="Click or drop photo of completed task proof"
+                      aspectRatio="video"
                     />
-                    <p className="text-[10px] text-slate-400 mt-0.5">Please provide an accessible image link displaying your completed task.</p>
                   </div>
                   <div>
                     <label className="block text-slate-700 font-medium mb-1">Location Coordinates / Notes</label>
@@ -319,6 +359,12 @@ export const GreenBountiesHub: React.FC<GreenBountiesHubProps> = ({ currentUserI
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
             <h3 className="font-bold text-slate-900 text-base">Auditor Review: Evidence Audit</h3>
+            {reviewError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{reviewError}</span>
+              </div>
+            )}
             <div className="bg-slate-50 p-3 rounded-xl text-xs space-y-1.5">
               <p><strong>Volunteer:</strong> {activeBounty.user_submission.user_name}</p>
               <p><strong>Notes:</strong> {activeBounty.user_submission.evidence_text}</p>

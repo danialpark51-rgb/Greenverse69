@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   ShieldAlert, ShieldCheck, MapPin, AlertTriangle, TreeDeciduous, PlusCircle,
-  Clock, CheckCircle2, Eye, ExternalLink, Loader2, Send, X, Filter
+  Clock, CheckCircle2, Eye, ExternalLink, Loader2, Send, X, Filter, AlertCircle
 } from 'lucide-react';
 import { InteractiveMap, MapMarkerItem } from '../components/map/InteractiveMap';
+import { ImageUpload } from '../components/common/ImageUpload';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   fetchProtectionReports,
   createProtectionReport,
@@ -56,11 +58,13 @@ export const TreeProtectorPage: React.FC = () => {
   });
   const [reportLoading, setReportLoading] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   // Responder Update State
   const [updateText, setUpdateText] = useState('');
   const [newStatus, setNewStatus] = useState<ProtectionStatus>('in_progress');
   const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   const loadReports = async () => {
     setLoading(true);
@@ -77,8 +81,40 @@ export const TreeProtectorPage: React.FC = () => {
     }
   };
 
+  const loadReportsRef = useRef(loadReports);
+  useEffect(() => {
+    loadReportsRef.current = loadReports;
+  });
+
   useEffect(() => {
     loadReports();
+
+    if (!isSupabaseConfigured) return;
+    const channel = supabase
+      .channel('protection-reports-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tree_protection_reports' },
+        () => {
+          loadReportsRef.current();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tree_protection_updates' },
+        () => {
+          loadReportsRef.current();
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[TreeProtector] Realtime subscription status error:', err);
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [selectedCategory]);
 
   const mapMarkers: MapMarkerItem[] = reports.map(r => ({
@@ -107,7 +143,21 @@ export const TreeProtectorPage: React.FC = () => {
   };
 
   const handleCreateReport = async () => {
+    if (!reportForm.tree_species.trim()) {
+      setReportError('Please specify the tree species or landmark name.');
+      return;
+    }
+    if (!reportForm.location_name.trim()) {
+      setReportError('Please provide the location or address.');
+      return;
+    }
+    if (!reportForm.description.trim()) {
+      setReportError('Please provide details regarding the threat.');
+      return;
+    }
+
     setReportLoading(true);
+    setReportError(null);
     try {
       await createProtectionReport(
         {
@@ -121,10 +171,22 @@ export const TreeProtectorPage: React.FC = () => {
       setTimeout(() => {
         setReportSuccess(false);
         setShowReportModal(false);
+        setReportForm({
+          tree_species: '',
+          threat_category: 'construction_threat',
+          severity: 'high',
+          urgency: 'routine',
+          location_name: '',
+          latitude: 45.5152,
+          longitude: -122.6784,
+          description: '',
+          photo_url: '',
+          is_heritage: false,
+        });
         loadReports();
       }, 1500);
-    } catch {
-      // handled
+    } catch (err: any) {
+      setReportError(err?.message || 'Failed to submit report. Please try again.');
     } finally {
       setReportLoading(false);
     }
@@ -133,6 +195,7 @@ export const TreeProtectorPage: React.FC = () => {
   const handleAddUpdate = async () => {
     if (!activeReport || !updateText.trim()) return;
     setUpdateLoading(true);
+    setUpdateError(null);
     try {
       await addProtectionUpdate(
         activeReport.id,
@@ -143,8 +206,8 @@ export const TreeProtectorPage: React.FC = () => {
       );
       setUpdateText('');
       loadReports();
-    } catch {
-      // handled
+    } catch (err: any) {
+      setUpdateError(err?.message || 'Failed to submit responder update.');
     } finally {
       setUpdateLoading(false);
     }
@@ -270,6 +333,12 @@ export const TreeProtectorPage: React.FC = () => {
               {/* Responder Progress Action */}
               <div className="pt-3 border-t border-slate-100 space-y-2 text-xs">
                 <span className="font-bold text-slate-800 block">Log Responder Action / Update Status</span>
+                {updateError && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{updateError}</span>
+                  </div>
+                )}
                 <textarea
                   rows={2}
                   value={updateText}
@@ -314,6 +383,12 @@ export const TreeProtectorPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-slate-900 text-base">Report Tree Threat or Landmark Nomination</h3>
+            {reportError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{reportError}</span>
+              </div>
+            )}
             {reportSuccess ? (
               <div className="text-center py-6">
                 <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
@@ -397,13 +472,15 @@ export const TreeProtectorPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-slate-700 font-medium mb-1">Photo Evidence URL</label>
-                    <input
-                      type="url"
-                      placeholder="https://images.unsplash.com/... or uploaded photo link"
+                    <ImageUpload
+                      label="Threat Photo Evidence"
                       value={reportForm.photo_url}
-                      onChange={e => setReportForm(p => ({ ...p, photo_url: e.target.value }))}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                      onChange={url => setReportForm(p => ({ ...p, photo_url: url }))}
+                      bucket="evidence"
+                      userId={currentUserId}
+                      folder="threats"
+                      placeholderText="Click or drop canopy damage / threat photo"
+                      aspectRatio="video"
                     />
                   </div>
 

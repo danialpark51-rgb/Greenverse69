@@ -68,6 +68,7 @@ export const GreenGigsHub: React.FC<GreenGigsHubProps> = ({ currentUserId, curre
     skills_text: '',
   });
   const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const loadGigs = async () => {
     setLoading(true);
@@ -128,7 +129,17 @@ export const GreenGigsHub: React.FC<GreenGigsHubProps> = ({ currentUserId, curre
   };
 
   const handleCreateGig = async () => {
+    if (!createForm.title.trim()) {
+      setCreateError('Please provide a gig title.');
+      return;
+    }
+    if (!createForm.description.trim()) {
+      setCreateError('Please provide a gig description.');
+      return;
+    }
+
     setCreateLoading(true);
+    setCreateError(null);
     try {
       await createGig(
         {
@@ -142,8 +153,8 @@ export const GreenGigsHub: React.FC<GreenGigsHubProps> = ({ currentUserId, curre
       );
       setShowCreateModal(false);
       loadGigs();
-    } catch {
-      // handled
+    } catch (err: any) {
+      setCreateError(err?.message || 'Failed to post gig. Please check your connection and try again.');
     } finally {
       setCreateLoading(false);
     }
@@ -496,6 +507,12 @@ export const GreenGigsHub: React.FC<GreenGigsHubProps> = ({ currentUserId, curre
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-slate-900 text-base">Post a New Green Gig</h3>
+            {createError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{createError}</span>
+              </div>
+            )}
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-medium mb-1">Gig Title *</label>

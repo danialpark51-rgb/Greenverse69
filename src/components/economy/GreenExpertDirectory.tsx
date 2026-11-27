@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   UserCheck, Search, Star, MapPin, Award, CheckCircle2, Bookmark,
-  Send, DollarSign, Loader2, Calendar, MessageSquare, X
+  Send, DollarSign, Loader2, Calendar, MessageSquare, X, AlertCircle, PlusCircle
 } from 'lucide-react';
 import {
   fetchExpertProfiles,
@@ -9,6 +9,7 @@ import {
   toggleBookmarkExpert
 } from '../../services/economyService';
 import { GreenExpertProfile, ExpertSpecialization } from '../../types/economy';
+import { ExpertProfileEditor } from './ExpertProfileEditor';
 
 interface GreenExpertDirectoryProps {
   currentUserId?: string;
@@ -43,6 +44,8 @@ export const GreenExpertDirectory: React.FC<GreenExpertDirectoryProps> = ({ curr
   });
   const [inquiryLoading, setInquiryLoading] = useState(false);
   const [inquirySuccess, setInquirySuccess] = useState(false);
+  const [inquiryError, setInquiryError] = useState<string | null>(null);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -68,6 +71,7 @@ export const GreenExpertDirectory: React.FC<GreenExpertDirectoryProps> = ({ curr
   const handleSendInquiry = async () => {
     if (!activeExpert) return;
     setInquiryLoading(true);
+    setInquiryError(null);
     try {
       await sendExpertInquiry(
         activeExpert.id,
@@ -80,8 +84,8 @@ export const GreenExpertDirectory: React.FC<GreenExpertDirectoryProps> = ({ curr
         setActiveExpert(null);
         setInquiryForm({ sender_name: currentUserName || '', sender_email: '', topic: '', message: '', preferred_date: '' });
       }, 1800);
-    } catch {
-      // handled
+    } catch (err: any) {
+      setInquiryError(err?.message || 'Failed to submit consultation inquiry. Please try again.');
     } finally {
       setInquiryLoading(false);
     }
@@ -90,15 +94,34 @@ export const GreenExpertDirectory: React.FC<GreenExpertDirectoryProps> = ({ curr
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          <UserCheck className="w-5 h-5 text-emerald-600" />
-          Green Expert Directory & Professional Network
-        </h2>
-        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          Consult with vetted arborists, ecologists, soil scientists, and spatial sustainability specialists.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <UserCheck className="w-5 h-5 text-emerald-600" />
+            Green Expert Directory & Professional Network
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Consult with vetted arborists, ecologists, soil scientists, and spatial sustainability specialists.
+          </p>
+        </div>
+        {currentUserId && (
+          <button
+            onClick={() => setShowProfileEditor(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 transition shrink-0"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            List Your Profile
+          </button>
+        )}
       </div>
+      {showProfileEditor && (
+        <ExpertProfileEditor
+          currentUserId={currentUserId!}
+          currentUserName={currentUserName}
+          onClose={() => setShowProfileEditor(false)}
+          onSaved={() => { setShowProfileEditor(false); loadData(); }}
+        />
+      )}
 
       {/* Search & Filter */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
@@ -221,6 +244,12 @@ export const GreenExpertDirectory: React.FC<GreenExpertDirectoryProps> = ({ curr
               </button>
             </div>
 
+            {inquiryError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{inquiryError}</span>
+              </div>
+            )}
             {inquirySuccess ? (
               <div className="text-center py-6">
                 <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
